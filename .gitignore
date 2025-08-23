@@ -8,3 +8,4 @@ lagrange-0-db/
 *.pyc
 timer_tasks.txt
 *.png
+test.py

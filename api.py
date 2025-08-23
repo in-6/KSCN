@@ -17,8 +17,35 @@ setu_cooldown = {}  #格式: {用户ID: 最后调用时间}
 def keyword(message, uid, gid = None):
     if message[:]=='>help':
         usage(gid)
-    if message[:]=='>来点涩图' or message[:]=='>setu':
-        setu(gid,uid)
+    if message.startswith('>setu'):
+        tags=r18=noai=None
+        parts=message[6:].strip().split('-',3)
+        if len(parts)>=1:
+            for i in range(len(parts)):
+                if parts[i]:
+                    command=parts[i].split(' ',1)
+                    if command[0]=='tag':   
+                        tags=parts[i].strip().split(' ')[1:]
+                    elif command[0]=='r18':
+                        r18=parts[i].strip().split(' ')[1]
+                        if not r18.isdigit():
+                            print(r18)
+                            if r18=='on' or r18=='开启':
+                                toggle_r18(gid,uid,True)
+                            elif r18=='off' or r18=='关闭':
+                                toggle_r18(gid,uid,False)
+                            else: requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=错误的命令参数。'.format(gid))
+                            return
+                        elif r18=='1':
+                            if not is_r18_enabled(gid):
+                                requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=本群未开启r18功能，请联系群管理员启用'.format(gid))
+                                return
+                    elif command[0]=='noai':
+                        noai=parts[i].strip().split(' ')[1]
+                    else:
+                        print("Unknown command")
+        print(f"Tags: {tags}, R18: {r18}, NoAI: {noai}")
+        setu(gid,uid,tags,r18,noai)
     # if message[:]=='>hello':
     #    hhw(gid)
     # if message[0:3]=='>ng':
@@ -90,7 +117,7 @@ def ngdownload(gid,songid):
     wget.download(url,path)
     requests.get(url='http://127.0.0.1:5700/upload_group_file?group_id={0}&file={1}&name={2}'.format(gid,path,name))
 
-def setu(gid,uid):
+def setu(gid,uid,tags,r18,noai):
     if gid==594936663: return
     # 如果提供了用户 ID，检查该用户是否在冷却时间内
     if uid is not None:
@@ -104,15 +131,65 @@ def setu(gid,uid):
         # 更新用户最后调用时间
         setu_cooldown[uid] = current_time
     
-    url='https://api.lolicon.app/setu/v2?size=original&size=regular'
+    if tags: tag_request='&tag='+','.join(tags) if tags else ''
+    else: tag_request=''
+    url='https://api.lolicon.app/setu/v2?size=original&size=regular{0}&r18={1}&no_ai={2}'.format(tag_request,r18 if r18 else 0,noai if noai else 0)
+    # print(url)
     menu=requests.get(url)
     setu_url=menu.json()['data'][0]['urls']['regular']
-    # print(setu_url)
+    print(setu_url)
+# 检查URL是否有效（发送HEAD请求检查状态码）
+    try:
+        response = requests.head(setu_url, timeout=5)
+        if response.status_code != 200:
+            print(f"图片URL返回状态码: {response.status_code}")
+            requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=图片似乎无法访问，请重试...'.format(gid))
+            return
+    except requests.exceptions.RequestException as e:
+        print(f"检查图片URL时出错: {e}")
+        requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=图片访问超时，请重试...'.format(gid))
+        return    
     msg_menu=requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message={1}'.format(gid,r'[CQ:image,'r'file='+str(setu_url)+r']'))
     msg_id=msg_menu.json()['data']['message_id']
     # print(msg_id)
     time.sleep(60)
     requests.get(url='http://127.0.0.1:5700/delete_msg?message_id={0}'.format(msg_id))
+
+def toggle_r18(gid, uid, enable):
+    """开启或关闭指定群的r18功能"""
+    # 权限检查
+    if not check_permission(gid, uid, 1):
+        requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=抱歉，只有群管理员/群主/开发者才能修改r18设置'.format(gid))
+        return False
+        
+    with open('kscnconfig.json', 'r') as f:
+        config = json.load(f)
+    
+    # 确保r18_enabled_groups存在
+    if 'r18_enabled_groups' not in config:
+        config['r18_enabled_groups'] = []
+    
+    # 将gid转为字符串以便JSON存储
+    gid_str = str(gid)
+
+    print(config['r18_enabled_groups'])
+    
+    # 根据enable参数添加或移除群组
+    if enable and gid_str not in config['r18_enabled_groups']:
+        config['r18_enabled_groups'].append(gid_str)
+        status_msg = "已开启"
+    elif not enable and gid_str in config['r18_enabled_groups']:
+        config['r18_enabled_groups'].remove(gid_str)
+        status_msg = "已关闭"
+    else:
+        status_msg = "已经是" + ("开启" if enable else "关闭") + "状态"
+    
+    # 保存配置
+    with open('kscnconfig.json', 'w') as f:
+        json.dump(config, f, indent=4)
+    
+    requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=本群r18功能{1}'.format(gid, status_msg))
+    return True
 
 def hhw(gid):
     requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=Hello, world!'.format(gid))
@@ -135,3 +212,39 @@ def poke(gid, uid):
     file_url=f"file://{image_path}"
     requests.get(url='http://127.0.1:5700/send_group_msg?group_id={0}&message={1}'.format(
         gid, f'[CQ:image,file={file_url}]'))
+
+def check_permission(gid, uid, required_level):
+    """
+    检查用户权限
+    required_level: 0=普通用户, 1=管理员/群主, 2=开发者
+    """
+    # 检查开发者权限
+    if required_level == 2:
+        with open('kscnconfig.json', 'r') as f:
+            config = json.load(f)
+        if uid in config.get('superuser', []):
+            return True
+        
+    # 检查管理员权限
+    if required_level >= 1:
+        # 调用API获取群成员信息
+        response = requests.get(f'http://127.0.0.1:5700/get_group_member_info?group_id={gid}&user_id={uid}')
+        member_info = response.json()
+        if member_info.get('status') == 'ok':
+            role = member_info.get('data', {}).get('role', '')
+            # 检查是否是群主或管理员
+            if role in ['owner', 'admin']:
+                return True
+            
+    # 开发者检查
+    if required_level == 2:
+        return False
+        
+    # 普通用户权限
+    return required_level == 0
+
+def is_r18_enabled(gid):
+    """检查群组是否启用了r18功能"""
+    with open('kscnconfig.json', 'r') as f:
+        config = json.load(f)
+    return str(gid) in config.get('r18_enabled_groups', [])
