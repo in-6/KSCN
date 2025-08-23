@@ -36,7 +36,7 @@ def keyword(message, uid, gid = None):
                                 toggle_r18(gid,uid,False)
                             else: requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=错误的命令参数。'.format(gid))
                             return
-                        elif r18=='1':
+                        elif r18=='1' or r18=='2':
                             if not is_r18_enabled(gid):
                                 requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=本群未开启r18功能，请联系群管理员启用'.format(gid))
                                 return
