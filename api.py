@@ -120,7 +120,15 @@ def ngdownload(gid,songid):
 def setu(gid,uid,tags,r18,noai):
     if gid==594936663: return
     # 如果提供了用户 ID，检查该用户是否在冷却时间内
-    
+    if uid is not None:
+        current_time = time.time()
+        last_call_time = setu_cooldown.get(uid, 0)
+        # 检查是否在一分钟冷却时间内
+        if current_time - last_call_time < 60:
+            remaining = int(60 - (current_time - last_call_time))
+            requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=不许涩涩！你需要再等{1}秒才能用这个功能！'.format(gid, remaining))
+            return
+
     if tags: tag_request='&tag='+','.join(tags) if tags else ''
     else: tag_request=''
     url='https://api.lolicon.app/setu/v2?size=original&size=regular{0}&r18={1}&no_ai={2}'.format(tag_request,r18 if r18 else 0,noai if noai else 0)
@@ -128,7 +136,7 @@ def setu(gid,uid,tags,r18,noai):
     menu=requests.get(url)
     setu_url=menu.json()['data'][0]['urls']['regular']
     print(setu_url)
-# 检查URL是否有效（发送HEAD请求检查状态码）
+    # 检查URL是否有效（发送HEAD请求检查状态码）
     try:
         response = requests.head(setu_url, timeout=5)
         if response.status_code != 200:
@@ -139,16 +147,8 @@ def setu(gid,uid,tags,r18,noai):
         print(f"检查图片URL时出错: {e}")
         requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=图片访问超时，请重试...'.format(gid))
         return    
-    if uid is not None:
-        current_time = time.time()
-        last_call_time = setu_cooldown.get(uid, 0)
-        # 检查是否在一分钟冷却时间内
-        if current_time - last_call_time < 60:
-            remaining = int(60 - (current_time - last_call_time))
-            requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=不许涩涩！你需要再等{1}秒才能用这个功能！'.format(gid, remaining))
-            return
-        # 更新用户最后调用时间
-        setu_cooldown[uid] = current_time
+    # 更新用户最后调用时间
+    setu_cooldown[uid] = current_time
     msg_menu=requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message={1}'.format(gid,r'[CQ:image,'r'file='+str(setu_url)+r']'))
     msg_id=msg_menu.json()['data']['message_id']
     # print(msg_id)
