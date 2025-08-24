@@ -38,7 +38,7 @@ def keyword(message, uid, gid = None):
                             return
                         elif r18=='1' or r18=='2':
                             if not is_r18_enabled(gid):
-                                requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=本群未开启r18功能，请联系群管理员启用'.format(gid))
+                                requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=本群未开启r18功能，请联系群管理员启用。'.format(gid))
                                 return
                     elif command[0]=='noai':
                         noai=parts[i].strip().split(' ')[1]
@@ -48,9 +48,6 @@ def keyword(message, uid, gid = None):
         setu(gid,uid,tags,r18,noai)
     # if message[:]=='>hello':
     #    hhw(gid)
-    # if message[0:3]=='>ng':
-    #     songid=message[4:]
-    #     ngdownload(gid,songid)
     if message[:]=='>antigen test':
         adt(gid,uid)
     if message[0:4]=='>cat':
@@ -61,6 +58,9 @@ def keyword(message, uid, gid = None):
             httpcat(gid,picid)    # 处理定时消息命令
     if message.startswith('>timer') or message.startswith('>定时'):
         try:
+            if not check_permission(gid, uid, 1):
+                requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=抱歉，只有群管理员/群主/开发者才能添加定时消息'.format(gid))
+                return False
             if message.startswith('>timer'):
                 parts = message[6:].strip().split(' ', 2)  # 分割成时间和消息内容
             else:
@@ -108,15 +108,6 @@ def adt(gid,uid):
 def usage(gid):
     requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=使用说明请点击:https://docs.qq.com/doc/DYkZnRHhKVE9WTFZK'.format(gid))
 
-def ngdownload(gid,songid):
-    requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=正在下载中...'.format(gid))
-    url='https://www.newgrounds.com/audio/download/'+songid
-    name=songid+'.mp3'
-    path='C:/BotFiles/Songs/'+songid+'.mp3'
-    print(url)
-    wget.download(url,path)
-    requests.get(url='http://127.0.0.1:5700/upload_group_file?group_id={0}&file={1}&name={2}'.format(gid,path,name))
-
 def setu(gid,uid,tags,r18,noai):
     if gid==594936663: return
     # 如果提供了用户 ID，检查该用户是否在冷却时间内
@@ -134,8 +125,11 @@ def setu(gid,uid,tags,r18,noai):
     url='https://api.lolicon.app/setu/v2?size=original&size=regular{0}&r18={1}&no_ai={2}'.format(tag_request,r18 if r18 else 0,noai if noai else 0)
     # print(url)
     menu=requests.get(url)
+    if menu.json()['data']==[]:
+        requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=没有找到符合要求的图片，请重试...'.format(gid))
+        return
     setu_url=menu.json()['data'][0]['urls']['regular']
-    print(setu_url)
+    #print(setu_url)
     # 检查URL是否有效（发送HEAD请求检查状态码）
     try:
         response = requests.head(setu_url, timeout=5)
@@ -152,7 +146,7 @@ def setu(gid,uid,tags,r18,noai):
     msg_menu=requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message={1}'.format(gid,r'[CQ:image,'r'file='+str(setu_url)+r']'))
     msg_id=msg_menu.json()['data']['message_id']
     # print(msg_id)
-    time.sleep(60)
+    time.sleep(90)
     requests.get(url='http://127.0.0.1:5700/delete_msg?message_id={0}'.format(msg_id))
 
 def toggle_r18(gid, uid, enable):
@@ -235,16 +229,12 @@ def check_permission(gid, uid, required_level):
             # 检查是否是群主或管理员
             if role in ['owner', 'admin']:
                 return True
-            
-    # 开发者检查
-    if required_level == 2:
-        return False
         
     # 普通用户权限
     return required_level == 0
 
 def is_r18_enabled(gid):
-    """检查群组是否启用了r18功能"""
+    # 检查群组是否启用了r18功能
     with open('kscnconfig.json', 'r') as f:
         config = json.load(f)
     return str(gid) in config.get('r18_enabled_groups', [])
