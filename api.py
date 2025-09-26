@@ -129,6 +129,7 @@ def setu(gid,uid,tags,r18,noai):
         requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=没有找到符合要求的图片，请重试...'.format(gid))
         return
     setu_url=menu.json()['data'][0]['urls']['regular']
+    setu_url=setu_url.replace(".re",".cat") # 国内反代i.pixiv.re炸了，改用通用的i.pixiv.cat
     #print(setu_url)
     # 检查URL是否有效（发送HEAD请求检查状态码）
     try:
