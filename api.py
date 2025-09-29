@@ -221,7 +221,7 @@ def check_permission(gid, uid, required_level):
             return True
         
     # 检查管理员权限
-    if required_level >= 1:
+    if required_level == 1:
         # 调用API获取群成员信息
         response = requests.get(f'http://127.0.0.1:5700/get_group_member_info?group_id={gid}&user_id={uid}')
         member_info = response.json()
