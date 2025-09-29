@@ -112,7 +112,7 @@ def setu(gid,uid,tags,r18,noai):
     if gid==594936663: return
     # 如果提供了用户 ID，检查该用户是否在冷却时间内
     if uid is not None:
-        if(check_permission(gid,uid,2)): return #开发者不受冷却时间限制
+        if(check_permission(gid,uid,2)): pass #开发者不受冷却时间限制
         current_time = time.time()
         last_call_time = setu_cooldown.get(uid, 0)
         # 检查是否在一分钟冷却时间内
