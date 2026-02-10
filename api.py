@@ -24,7 +24,7 @@ def keyword(message, uid, gid = None):
             for i in range(len(parts)):
                 if parts[i]:
                     command=parts[i].split(' ',1)
-                    if command[0]=='tag':   
+                    if command[0]=='tag':
                         tags=parts[i].strip().split(' ')[1:]
                     elif command[0]=='r18':
                         r18=parts[i].strip().split(' ')[1]
@@ -41,7 +41,7 @@ def keyword(message, uid, gid = None):
                                 requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=本群未开启r18功能，请联系群管理员启用。'.format(gid))
                                 return
                     elif command[0]=='noai':
-                        noai=True
+                        noai=parts[i].strip().split(' ')[1:]
                     else:
                         print("Unknown command")
         print(f"Tags: {tags}, R18: {r18}, NoAI: {noai}")
