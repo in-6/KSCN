@@ -106,12 +106,12 @@ def adt(gid,uid):
     else:
         requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message={1}- C{2}- T{3}  S{4} 诶呀，你阳了'.format(gid,r'[CQ:at,'r'qq='+str(uid)+r']'+'\n','\n','\n','\n'))
 def usage(gid):
-    requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=使用说明请点击:https://docs.qq.com/doc/DYkZnRHhKVE9WTFZK'.format(gid))
+    requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=使用说明请点击:https://docs.qq.com/doc/DYm1wSnVDVUJVUGtF'.format(gid))
 
 def setu(gid,uid,tags,r18,noai):
     if gid==594936663: return
     # 如果提供了用户 ID，检查该用户是否在冷却时间内
-    if uid is not None:
+    if uid is not None: 
         current_time = time.time()
         last_call_time = setu_cooldown.get(uid, 0)
         # 检查是否在一分钟冷却时间内
