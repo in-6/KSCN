@@ -41,7 +41,7 @@ def keyword(message, uid, gid = None):
                                 requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=本群未开启r18功能，请联系群管理员启用。'.format(gid))
                                 return
                     elif command[0]=='noai':
-                        noai=parts[i].strip().split(' ')[1]
+                        noai=1
                     else:
                         print("Unknown command")
         print(f"Tags: {tags}, R18: {r18}, NoAI: {noai}")
@@ -202,7 +202,7 @@ def httpcat(gid,picid):
 def poke(gid, uid):
     with open('kscnconfig.json','r') as f:
         config = json.load(f)
-    num=random.randint(0,14)
+    num=random.randint(0,19)
     image_path= os.path.join(config['poke_image_folder'], f"{num}.jpg") # 使用配置文件中的图片路径
     file_url=f"file://{image_path}"
     requests.get(url='http://127.0.1:5700/send_group_msg?group_id={0}&message={1}'.format(
