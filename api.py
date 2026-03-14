@@ -213,26 +213,22 @@ def check_permission(gid, uid, required_level):
     检查用户权限
     required_level: 0=普通用户, 1=管理员/群主, 2=开发者
     """
-    # 检查开发者权限
-    if required_level == 2:
-        with open('kscnconfig.json', 'r') as f:
-            config = json.load(f)
-        if uid in config.get('superuser', []):
-            return True
+    usr_level=0
+    with open('kscnconfig.json', 'r') as f:
+        config = json.load(f)
+    if uid in config.get('superuser', []):
+        return True
+
+    # 调用API获取群成员信息
+    response = requests.get(f'http://127.0.0.1:5700/get_group_member_info?group_id={gid}&user_id={uid}')
+    member_info = response.json()
+    if member_info.get('status') == 'ok':
+        role = member_info.get('data', {}).get('role', '')
+        # 检查是否是群主或管理员
+        if role in ['owner', 'admin']:
+            usr_level=1
         
-    # 检查管理员权限
-    if required_level == 1:
-        # 调用API获取群成员信息
-        response = requests.get(f'http://127.0.0.1:5700/get_group_member_info?group_id={gid}&user_id={uid}')
-        member_info = response.json()
-        if member_info.get('status') == 'ok':
-            role = member_info.get('data', {}).get('role', '')
-            # 检查是否是群主或管理员
-            if role in ['owner', 'admin']:
-                return True
-        
-    # 普通用户权限
-    return required_level == 0
+    return usr_level>=required_level
 
 def is_r18_enabled(gid):
     # 检查群组是否启用了r18功能
