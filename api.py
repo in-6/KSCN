@@ -120,8 +120,9 @@ def setu(gid,uid,tags,r18,noai):
             requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=不许涩涩！你需要再等{1}秒才能用这个功能！'.format(gid, remaining))
             return
 
-    if tags: tag_request='&tag='+','.join(tags) if tags else ''
+    if tags: tag_request='&tag='+'&tag='.join(tags) if tags else ''
     else: tag_request=''
+    print(tag_request)
     url='https://api.lolicon.app/setu/v2?size=original&size=regular{0}&r18={1}&no_ai={2}'.format(tag_request,r18 if r18 else 0,noai if noai else 0)
     # print(url)
     menu=requests.get(url)
