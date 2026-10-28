@@ -56,7 +56,7 @@ class GachaScheduler:
         self._running = True
         self._thread = threading.Thread(target=self._loop, daemon=True, name="OsugachaScheduler")
         self._thread.start()
-        print("[AutoGacha] 拟人化开包调度器后台线程已启动")
+        print("[AutoGacha] osu!gacha 开包调度器后台线程已启动")
 
     def _loop(self):
         while self._running:
