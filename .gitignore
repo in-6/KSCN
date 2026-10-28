@@ -9,3 +9,5 @@ lagrange-0-db/
 timer_tasks.txt
 *.png
 test.py
+users.json
+osugacha/data/

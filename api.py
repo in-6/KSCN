@@ -11,10 +11,13 @@ import base64
 from flask import request
 
 import scheduleapi
+from osugacha import handle_gacha_command, scheduler as gacha_scheduler
 
 setu_cooldown = {}  #格式: {用户ID: 最后调用时间}
 
 def keyword(message, uid, gid = None):
+    if message.startswith(">gacha"):
+        handle_gacha_command(message, uid, gid)
     if message[:]=='>help':
         usage(gid)
     if message.startswith('>setu'):
@@ -91,6 +94,7 @@ def start_scheduler():
     scheduler_thread = threading.Thread(target=scheduleapi.run_scheduler)
     scheduler_thread.daemon = True
     scheduler_thread.start()
+    gacha_scheduler.start()
     print(f"定时任务系统已启动，已加载 {len(tasks)} 个任务")
 
 def adt(gid,uid):
@@ -130,7 +134,7 @@ def setu(gid,uid,tags,r18,noai):
         requests.get(url='http://127.0.0.1:5700/send_group_msg?group_id={0}&message=没有找到符合要求的图片，请重试...'.format(gid))
         return
     setu_url=menu.json()['data'][0]['urls']['regular']
-    setu_url=setu_url.replace(".re",".cat") # 国内反代i.pixiv.re炸了，改用通用的i.pixiv.cat
+    # setu_url=setu_url.replace(".re",".cat") # 通用反代i.pixiv.cat炸了，不改了
     #print(setu_url)
     # 检查URL是否有效（发送HEAD请求检查状态码）
     try:
