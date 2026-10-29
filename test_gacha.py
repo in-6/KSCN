@@ -88,19 +88,99 @@ def run_unit_tests():
         })
 
         # 查看状态
-        handle_gacha_command(">gacha status", test_uid, gid=test_gid)
+        handle_gacha_command(">gacha stats", test_uid, gid=test_gid)
 
         # 开启挂机 3 小时
         handle_gacha_command(">gacha on 3", test_uid, gid=test_gid)
 
         # 再次查看状态（应为运行中）
-        handle_gacha_command(">gacha status", test_uid, gid=test_gid)
+        handle_gacha_command(">gacha stats", test_uid, gid=test_gid)
 
         # 停止挂机
         handle_gacha_command(">gacha off", test_uid, gid=test_gid)
 
         # 清理测试用户
         storage.delete_user(str(test_uid))
+
+    # 5. 测试 format_user_profile 与 format_pack_results 样式
+    print("\n[测试 5] 测试 format_user_profile 与品质卡包排版...")
+    from osugacha.formatter import format_user_profile, format_pack_results
+    sample_profile = {
+        "user": {
+            "username": "noraneko",
+            "countryCode": "cn",
+            "osuUserId": 17945067,
+            "guild": {"tag": "KRA", "name": "云母之家"}
+        },
+        "stats": {
+            "level": {"level": 12},
+            "team": {"power": 27360},
+            "tower": {"floor": 64},
+            "pvp": {"rating": 955, "wins": 1, "losses": 5},
+            "collection": {"value": 26891, "cards": 3207},
+            "dex": {"caught": 6171, "total": 92440}
+        }
+    }
+    bot_stats = {
+        "is_running": True,
+        "status_str": "🟢 运行中 (剩余 1小时15分)",
+        "next_in_str": "约 7 分钟后",
+        "total_opened": 36,
+        "best_pull": "🟡 [Legendary] Cookiezi",
+    }
+    # 模拟自己查看个人主页
+    profile_self = format_user_profile(
+        sample_profile,
+        pack_info_str="🎁 2 / 10 包 (自然回复中) · 🟨 黄金卡包 x1",
+        pity_info_str="🟡 17 / 80 包 (还差 63 包)",
+        bot_stats=bot_stats
+    )
+    print("\n【查自己个人信息效果展示】:\n" + profile_self)
+    assert "⚙️ 【自动开卡】" in profile_self
+    assert "• 挂机状态：🟢 运行中 (剩余 1小时15分)" in profile_self
+    assert "• 可用卡包：🎁 2 / 10 包 (自然回复中) · 🟨 黄金卡包 x1" in profile_self
+    assert "• 传说保底：🟡 17 / 80 包 (还差 63 包)" in profile_self
+    assert "• 资产：⭐ 26,891" in profile_self
+    # 确保 挂机状态 -> 可用卡包 -> 传说保底
+    assert profile_self.index("• 挂机状态：") < profile_self.index("• 可用卡包：") < profile_self.index("• 传说保底：")
+
+    # 模拟查他人个人主页 (不含自动开卡部分)
+    profile_other = format_user_profile(sample_profile)
+    print("\n【查他人个人信息效果展示】:\n" + profile_other)
+    assert "⚙️ 【自动开卡】" not in profile_other
+
+    # 模拟开包排版 (带品质显示)
+    sample_pulled = [
+        {"player": {"username": "Cookiezi", "countryCode": "KR", "globalRank": 1, "cls": "dps"}, "rarity": "legendary"},
+        {"player": {"username": "Mrekk", "countryCode": "AU", "globalRank": 1, "cls": "dps"}, "rarity": "rare"}
+    ]
+    pull_res = format_pack_results(sample_pulled, pack_name="🟨 黄金卡包")
+    print("\n【开包结果效果展示】:\n" + pull_res)
+    assert "📦 【osu!gacha 开包结果 · 🟨 黄金卡包】" in pull_res
+
+    # 6. 测试自然日 00:00 跨天重置逻辑 (ensure_daily_stats)
+    print("\n[测试 6] 测试自然日 0 点自动重置逻辑...")
+    from osugacha.storage import ensure_daily_stats
+    import datetime
+
+    yesterday_str = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+    old_stats = {
+        "date": yesterday_str,
+        "today_opened": 42,
+        "today_best": "🟡 [Legendary] Cookiezi",
+        "today_best_level": 5,
+        "total_opened": 100,
+    }
+    new_stats, reset = ensure_daily_stats(old_stats)
+    assert reset is True, "跨天时应返回 reset=True"
+    assert new_stats["today_opened"] == 0, "跨天后今日开包应清零"
+    assert new_stats["today_best"] == "暂无", "跨天后今日最佳应重置为'暂无'"
+    assert new_stats["date"] == datetime.date.today().isoformat(), "跨天后日期应更新为今天"
+
+    # 同一天内重复调用不应被重置
+    same_stats, reset2 = ensure_daily_stats(new_stats)
+    assert reset2 is False, "同一天内调用不应重置"
+    print("✅ 自然日 0 点重置逻辑测试全部通过！")
 
     print("\n" + "=" * 60)
     print("🎉 所有本地单元与排版测试全部通过！")

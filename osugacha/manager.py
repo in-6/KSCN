@@ -3,9 +3,9 @@ import datetime
 from typing import Optional
 
 from .client import OsugachaClient, extract_cookie_from_text
-from .storage import storage
-from .scheduler import send_qq_msg, scheduler
-from .formatter import format_pack_results
+from .storage import storage, ensure_daily_stats
+from .scheduler import send_qq_msg, scheduler, HIGHLIGHT_RARITIES
+from .formatter import format_pack_results, format_user_profile, get_pack_name, parse_card_info
 
 
 def handle_gacha_command(message: str, uid: int, gid: Optional[int] = None):
@@ -28,8 +28,9 @@ def handle_gacha_command(message: str, uid: int, gid: Optional[int] = None):
         handle_start(uid_str, gid_str, hours_str)
     elif subcmd in ["off", "stop", "关闭"]:
         handle_stop(uid_str, gid_str)
-    elif subcmd in ["status", "状态"]:
-        handle_status(uid_str, gid_str)
+    elif subcmd in ["stats", "status", "状态", "数据"]:
+        target_user = parts[2].strip() if len(parts) > 2 else None
+        handle_stats(uid_str, gid_str, target_user)
     elif subcmd in ["pull", "抽", "开包"]:
         handle_manual_pull(uid_str, gid_str)
     else:
@@ -50,12 +51,12 @@ def show_help(uid: str, gid: Optional[str]):
         "⚡ 【常用控制指令】\n"
         "• >gacha on [小时数] : 开启自动开包 (如 >gacha on 3)\n"
         "• >gacha off : 立即停止挂机\n"
-        "• >gacha status : 查看当前挂机状态与出货统计\n"
+        "• >gacha stats [用户名] : 查看个人信息或他人资料\n"
         "• >gacha pull : 手动开 1 包测试欧气\n"
         "• >gacha unbind : 解除账号绑定\n"
         "━━━━━━━━━━━━━━━\n"
-        "💡 在群内使用时，机器人的所有回复与出货战报均会自动 @ 你，避免信息混乱。"
-        "🔴 友情提示：osu!gacha游戏开发者禁止使用连点器、脚本。如果你担心账号安全，请勿使用定时挂机功能。"
+        "💡 在群内使用时，机器人的所有回复与出货战报均会自动 @ 你，避免信息混乱。\n"
+        "🔴 友情提示：osu!gacha开发者禁止使用连点器、脚本。如果你担心账号安全，请勿使用此功能。"
     )
     send_qq_msg(uid, text, gid=gid)
 
@@ -111,6 +112,10 @@ def handle_bind(uid: str, gid: Optional[str], raw_message: str):
         "max_interval": 1080,  # 最大随机开包间隔 18 分钟
         "gid": None,
         "stats": {
+            "date": datetime.date.today().isoformat(),
+            "today_opened": 0,
+            "today_best": "暂无",
+            "today_best_level": 0,
             "session_opened": 0,
             "total_opened": 0,
             "best_pull": "暂无",
@@ -196,39 +201,125 @@ def handle_stop(uid: str, gid: Optional[str]):
     )
 
 
-def handle_status(uid: str, gid: Optional[str]):
-    user = storage.get_user(uid)
-    if not user:
-        send_qq_msg(uid, "❌ 你还没有绑定账号！请先私聊机器人发送 `>gacha bind <cURL>`。", gid=gid)
+def handle_stats(uid: str, gid: Optional[str], target_user: Optional[str] = None):
+    # 场景 1：查询指定用户公开主页（无需绑定）
+    if target_user:
+        ok, profile_data, msg = OsugachaClient.fetch_public_profile(target_user)
+        if not ok or not profile_data:
+            send_qq_msg(uid, f"❌ 未能获取到玩家 [{target_user}] 的个人信息：{msg}", gid=gid)
+            return
+        reply = format_user_profile(profile_data)
+        send_qq_msg(uid, reply, gid=gid)
         return
 
+    # 场景 2：查询自己（需绑定账号）
+    user = storage.get_user(uid)
+    if not user:
+        send_qq_msg(
+            uid,
+            "❌ 你还没有绑定账号！请先私聊机器人发送 `>gacha bind <cURL>` 绑定，或使用 `>gacha stats <用户名>` 查询他人资料。",
+            gid=gid,
+        )
+        return
+
+    username = user.get("osu_username", "未知")
+    cookie = user.get("cookie", "")
+
+    # 获取公开主页信息
+    ok, profile_data, msg = OsugachaClient.fetch_public_profile(username)
+
+    # 组织自动挂机统计信息
     now = time.time()
     is_running = user.get("is_running", False)
-    status_text = "🟢 运行中" if is_running else "🔴 已停止"
-    username = user.get("osu_username", "未知")
-
     stop_ts = user.get("stop_timestamp", 0)
     next_ts = user.get("next_pull_time", 0)
     stats = user.get("stats", {})
-
-    remaining_str = "--"
-    next_in_str = "--"
+    stats, reset = ensure_daily_stats(stats)
+    if reset:
+        storage.update_user_fields(uid, stats=stats)
 
     if is_running:
         rem_sec = max(0, int(stop_ts - now))
-        remaining_str = f"{rem_sec // 3600}小时{(rem_sec % 3600) // 60}分"
-
+        rem_str = f"{rem_sec // 3600}小时{(rem_sec % 3600) // 60}分"
+        status_str = f"🟢 运行中 (剩余 {rem_str})"
         next_sec = max(0, int(next_ts - now))
         next_in_str = f"约 {next_sec // 60} 分钟后"
+    else:
+        status_str = "🔴 已停止"
+        next_in_str = "--"
 
-    reply = (
-        f"📊 【osu!gacha 状态看板】\n"
-        f"• 绑定账号: {username}\n"
-        f"• 挂机状态: {status_text}\n"
-        f"• 剩余时间: {remaining_str}\n"
-        f"• 下次开包: {next_in_str}\n"
-        f"• 今日开包: {stats.get('total_opened', 0)} 包\n"
-        f"• 最佳出货: {stats.get('best_pull', '暂无')}"
+    bot_stats = {
+        "is_running": is_running,
+        "status_str": status_str,
+        "next_in_str": next_in_str,
+        "today_opened": stats.get("today_opened", 0),
+        "today_best": stats.get("today_best", "暂无"),
+        "total_opened": stats.get("today_opened", 0),
+        "best_pull": stats.get("today_best", "暂无"),
+    }
+
+    if not ok or not profile_data:
+        # 网络异常时的降级输出
+        fallback_msg = (
+            f"👤 【osu!gacha 状态看板】\n"
+            f"• 绑定账号: {username}\n"
+            f"⚠️ 个人主页档案暂无法连接: {msg}\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"⚙️ 【自动开卡】\n"
+            f"• 挂机状态：{bot_stats['status_str']}\n"
+            f"• 今日开包：{bot_stats['today_opened']} 包\n"
+            f"• 今日最佳：{bot_stats['today_best']}"
+        )
+        send_qq_msg(uid, fallback_msg, gid=gid)
+        return
+
+    # 获取当前背包中可用卡包数量及品质分类、保底信息
+    client = OsugachaClient(cookie)
+    inv_ok, inv_data, _ = client.get_inventory()
+    pack_info_str = None
+    pity_info_str = None
+    if inv_ok and inv_data is not None:
+        packs = inv_data if isinstance(inv_data, list) else inv_data.get("packs", inv_data.get("items", []))
+        basic_count = 0
+        special_counts = {}
+        for p in packs:
+            slug = (
+                p.get("slug")
+                or p.get("type")
+                or (p.get("pack", {}).get("slug") if isinstance(p.get("pack"), dict) else None)
+                or "basic"
+            ).lower()
+            if slug == "basic":
+                basic_count += 1
+            else:
+                p_name = get_pack_name(p)
+                special_counts[p_name] = special_counts.get(p_name, 0) + 1
+
+        state_tag = "自然回复中" if basic_count < 10 else "已存满"
+        base_str = f"🎁 {basic_count} / 10 包 ({state_tag})"
+        if special_counts:
+            specials_str = " · ".join(f"{name} x{cnt}" for name, cnt in special_counts.items())
+            pack_info_str = f"{base_str} · {specials_str}"
+        else:
+            pack_info_str = base_str
+
+        # 解析保底信息 (pity)
+        if isinstance(inv_data, dict):
+            pity_data = inv_data.get("pity")
+            if isinstance(pity_data, dict):
+                p_count = pity_data.get("count", 0)
+                p_threshold = pity_data.get("threshold", 80)
+                p_rem = max(0, p_threshold - p_count)
+                if p_rem == 0:
+                    pity_info_str = f"🟡 {p_count} / {p_threshold} 包 (本包必出!)"
+                else:
+                    pity_info_str = f"🟡 {p_count} / {p_threshold} 包 (还差 {p_rem} 包)"
+
+    reply = format_user_profile(
+        profile_data,
+        pack_info_str=pack_info_str,
+        pity_info_str=pity_info_str,
+        bot_stats=bot_stats,
     )
     send_qq_msg(uid, reply, gid=gid)
 
@@ -252,6 +343,7 @@ def handle_manual_pull(uid: str, gid: Optional[str]):
         return
 
     first_pack = packs[0]
+    pack_name = get_pack_name(first_pack)
     pack_id = first_pack.get("id") or first_pack.get("inventoryId") or first_pack.get("packId")
 
     open_ok, open_data, open_msg = client.open_pack(pack_id)
@@ -266,6 +358,24 @@ def handle_manual_pull(uid: str, gid: Optional[str]):
         else (open_data if isinstance(open_data, list) else [])
     )
 
-    reply = format_pack_results(pulled_cards)
+    # 统计更新今日开包与最佳出货 (自然日0点重置)
+    stats = user.get("stats", {})
+    stats, _ = ensure_daily_stats(stats)
+    stats["today_opened"] = stats.get("today_opened", 0) + 1
+    stats["total_opened"] = stats.get("total_opened", 0) + 1
+
+    for card in pulled_cards:
+        info = parse_card_info(card)
+        if info["rarity_key"] in HIGHLIGHT_RARITIES:
+            curr_level = stats.get("today_best_level", 0)
+            if info["rarity_level"] >= curr_level:
+                card_str = f"{info['rarity_icon']} [{info['rarity_name']}] {info['username']}"
+                stats["today_best"] = card_str
+                stats["best_pull"] = card_str
+                stats["today_best_level"] = info["rarity_level"]
+
+    storage.update_user_fields(uid, stats=stats)
+
+    reply = format_pack_results(pulled_cards, pack_name=pack_name)
     send_qq_msg(uid, reply, gid=gid)
 

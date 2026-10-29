@@ -5,18 +5,16 @@ import requests
 from typing import Dict, Any, Optional
 
 from .client import OsugachaClient
-from .storage import storage
+from .storage import storage, ensure_daily_stats
 from .formatter import parse_card_info, format_card_line, RARITY_CONFIG
 
 ONEBOT_API_URL = "http://127.0.0.1:5700"
 
-# 高稀有度列表，抽到将主动推送 QQ 提醒
+# 关注的高稀有度列表：仅当开出传说(Legendary)及以上品质时才主动推送 QQ 提醒
 HIGHLIGHT_RARITIES = {
-    "epic": "Epic",
     "legendary": "Legendary",
     "mythic": "Mythic",
     "divine": "Divine",
-    "signature": "Signature",
 }
 
 
@@ -79,6 +77,9 @@ class GachaScheduler:
             stop_time = user.get("stop_timestamp", 0)
             next_time = user.get("next_pull_time", 0)
             stats = user.get("stats", {})
+            stats, reset = ensure_daily_stats(stats)
+            if reset:
+                storage.update_user_fields(uid, stats=stats)
 
             # 1. 检查是否到达预设的停止时间 (防通宵挂机保护)
             if now >= stop_time:
@@ -169,14 +170,20 @@ class GachaScheduler:
                 info = parse_card_info(card)
                 if info["rarity_key"] in HIGHLIGHT_RARITIES:
                     rare_findings.append(info)
-                    # 记录最高出货
-                    stats["best_pull"] = f"{info['rarity_icon']} [{info['rarity_name']}] {info['username']}"
+                    # 记录今日最高出货
+                    curr_level = stats.get("today_best_level", 0)
+                    if info["rarity_level"] >= curr_level:
+                        card_str = f"{info['rarity_icon']} [{info['rarity_name']}] {info['username']}"
+                        stats["today_best"] = card_str
+                        stats["best_pull"] = card_str
+                        stats["today_best_level"] = info["rarity_level"]
 
             # 关键拟人化安全间隔：连开多包时，模拟真实玩家看牌停顿 1.8 ~ 3.5 秒，绝不秒点下一包
             time.sleep(random.uniform(1.8, 3.5))
 
-        # 开包成功，更新统计
+        # 开包成功，更新统计（按自然日重置与累加）
         stats["session_opened"] = stats.get("session_opened", 0) + opened_this_batch
+        stats["today_opened"] = stats.get("today_opened", 0) + opened_this_batch
         stats["total_opened"] = stats.get("total_opened", 0) + opened_this_batch
 
         # 下一次大轮询延时：随机 6 ~ 18 分钟 (拟人化波动)

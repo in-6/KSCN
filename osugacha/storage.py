@@ -1,12 +1,36 @@
 import os
 import json
 import threading
-from typing import Dict, Any, Optional
+import datetime
+from typing import Dict, Any, Optional, Tuple
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 USERS_FILE = os.path.join(DATA_DIR, "users.json")
 
 _lock = threading.Lock()
+
+
+def ensure_daily_stats(stats: Dict[str, Any]) -> Tuple[Dict[str, Any], bool]:
+    """
+    检查并维护用户的每日统计数据（按本地自然日 00:00 重置）
+    返回 (更新后的stats, 是否发生了跨天重置)
+    """
+    today = datetime.date.today().isoformat()
+    reset = False
+    if stats.get("date") != today:
+        stats["date"] = today
+        stats["today_opened"] = 0
+        stats["today_best"] = "暂无"
+        stats["today_best_level"] = 0
+        reset = True
+    else:
+        if "today_opened" not in stats:
+            stats["today_opened"] = stats.get("total_opened", 0)
+        if "today_best" not in stats:
+            stats["today_best"] = stats.get("best_pull", "暂无")
+        if "today_best_level" not in stats:
+            stats["today_best_level"] = 0
+    return stats, reset
 
 
 class Storage:

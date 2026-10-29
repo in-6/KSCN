@@ -143,3 +143,26 @@ class OsugachaClient:
         except Exception as e:
             return False, None, f"网络异常: {str(e)}"
 
+    @staticmethod
+    def fetch_public_profile(username: str) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+        """
+        公开接口：查询任意玩家的公开主页档案 (无需 Cookie 登录态)
+        """
+        import urllib.parse
+        url = f"{BASE_URL}/users/{urllib.parse.quote(username)}/profile"
+        headers = {
+            "User-Agent": DEFAULT_USER_AGENT,
+            "x-client-build": CLIENT_BUILD,
+            "Accept": "application/json, text/plain, */*",
+        }
+        try:
+            resp = requests.get(url, headers=headers, timeout=10)
+            if resp.status_code == 200:
+                return True, resp.json(), "获取成功"
+            elif resp.status_code == 404:
+                return False, None, "未找到该玩家"
+            return False, None, f"请求失败 HTTP {resp.status_code}"
+        except Exception as e:
+            return False, None, f"网络异常: {str(e)}"
+
+
