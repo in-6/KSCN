@@ -51,7 +51,7 @@ def show_help(uid: str, gid: Optional[str]):
         "⚡ 【常用控制指令】\n"
         "• >gacha on [小时数] : 开启自动开包 (如 >gacha on 3)\n"
         "• >gacha off : 立即停止挂机\n"
-        "• >gacha stats [用户名] : 查看个人信息或他人资料\n"
+        "• >gacha stats <用户名> : 查看指定玩家资料 (直接输入 >gacha stats 查自己)\n"
         "• >gacha pull : 手动开 1 包测试欧气\n"
         "• >gacha unbind : 解除账号绑定\n"
         "━━━━━━━━━━━━━━━\n"
@@ -204,9 +204,11 @@ def handle_stop(uid: str, gid: Optional[str]):
 def handle_stats(uid: str, gid: Optional[str], target_user: Optional[str] = None):
     # 场景 1：查询指定用户公开主页（无需绑定）
     if target_user:
+        import html
+        display_name = html.unescape(target_user).strip()
         ok, profile_data, msg = OsugachaClient.fetch_public_profile(target_user)
         if not ok or not profile_data:
-            send_qq_msg(uid, f"❌ 未能获取到玩家 [{target_user}] 的个人信息：{msg}", gid=gid)
+            send_qq_msg(uid, f"❌ 未能获取到玩家 [{display_name}] 的个人信息：{msg}", gid=gid)
             return
         reply = format_user_profile(profile_data)
         send_qq_msg(uid, reply, gid=gid)

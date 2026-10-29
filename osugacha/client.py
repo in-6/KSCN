@@ -147,22 +147,66 @@ class OsugachaClient:
     def fetch_public_profile(username: str) -> Tuple[bool, Optional[Dict[str, Any]], str]:
         """
         公开接口：查询任意玩家的公开主页档案 (无需 Cookie 登录态)
+        支持特殊字符、OneBot HTML实体反转义、空格/下划线互通容错与外层语法中括号容错
         """
+        import html
         import urllib.parse
-        url = f"{BASE_URL}/users/{urllib.parse.quote(username)}/profile"
+
+        # 1. HTML 实体反转义 (NapCat 会把 [ 转为 &#91;，] 转为 &#93;，& 转为 &amp;)
+        raw_name = html.unescape(username).strip()
+        # 去除外层可能包裹的引号（如 "Aether Realm" 或 'Silence_Suzuka_'）
+        if (raw_name.startswith('"') and raw_name.endswith('"')) or (raw_name.startswith("'") and raw_name.endswith("'")):
+            raw_name = raw_name[1:-1].strip()
+
+        if not raw_name:
+            return False, None, "用户名不能为空"
+
+        # 2. 生成多级候选名称
+        candidates = [raw_name]
+
+        # 容错：如果用户被指令说明误导，整体用中括号包裹（如 [noraneko] 或 【noraneko】），
+        # 且剥离后仍有内容，则加入剥离外层括号后的候选名
+        if (raw_name.startswith('[') and raw_name.endswith(']')) and len(raw_name) > 2:
+            no_brackets = raw_name[1:-1].strip()
+            if no_brackets and no_brackets not in candidates:
+                candidates.append(no_brackets)
+        elif (raw_name.startswith('【') and raw_name.endswith('】')) and len(raw_name) > 2:
+            no_brackets = raw_name[1:-1].strip()
+            if no_brackets and no_brackets not in candidates:
+                candidates.append(no_brackets)
+
+        # 容错：osu! 规则中空格与下划线 _ 等价互通
+        for cand in list(candidates):
+            if "_" in cand:
+                spaced = cand.replace("_", " ")
+                if spaced not in candidates:
+                    candidates.append(spaced)
+            if " " in cand:
+                underscored = cand.replace(" ", "_")
+                if underscored not in candidates:
+                    candidates.append(underscored)
+
         headers = {
             "User-Agent": DEFAULT_USER_AGENT,
             "x-client-build": CLIENT_BUILD,
             "Accept": "application/json, text/plain, */*",
         }
-        try:
-            resp = requests.get(url, headers=headers, timeout=10)
-            if resp.status_code == 200:
-                return True, resp.json(), "获取成功"
-            elif resp.status_code == 404:
-                return False, None, "未找到该玩家"
-            return False, None, f"请求失败 HTTP {resp.status_code}"
-        except Exception as e:
-            return False, None, f"网络异常: {str(e)}"
+
+        last_err = "未找到该玩家"
+        for name in candidates:
+            url = f"{BASE_URL}/users/{urllib.parse.quote(name)}/profile"
+            try:
+                resp = requests.get(url, headers=headers, timeout=10)
+                if resp.status_code == 200:
+                    return True, resp.json(), "获取成功"
+                elif resp.status_code == 404:
+                    last_err = "未找到该玩家"
+                else:
+                    last_err = f"请求失败 HTTP {resp.status_code}"
+            except Exception as e:
+                last_err = f"网络异常: {str(e)}"
+                continue
+
+        return False, None, last_err
 
 

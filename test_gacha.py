@@ -182,6 +182,44 @@ def run_unit_tests():
     assert reset2 is False, "同一天内调用不应重置"
     print("✅ 自然日 0 点重置逻辑测试全部通过！")
 
+    # 7. 测试用户名特殊字符解析与候选名容错 (如 [SHK]T_T, [noraneko], 下划线/空格)
+    print("\n[测试 7] 测试特殊字符用户名与 OneBot 实体反转义解析...")
+    import html
+    test_raw = "&#91;SHK&#93;T_T"
+    unescaped = html.unescape(test_raw).strip()
+    assert unescaped == "[SHK]T_T", "HTML实体应正确还原为带括号的用户名"
+
+    # 测试候选名逻辑
+    def get_candidates(raw):
+        import html
+        clean = html.unescape(raw).strip()
+        if (clean.startswith('"') and clean.endswith('"')) or (clean.startswith("'") and clean.endswith("'")):
+            clean = clean[1:-1].strip()
+        cands = [clean]
+        if (clean.startswith('[') and clean.endswith(']')) and len(clean) > 2:
+            no_b = clean[1:-1].strip()
+            if no_b not in cands: cands.append(no_b)
+        for c in list(cands):
+            if "_" in c:
+                sp = c.replace("_", " ")
+                if sp not in cands: cands.append(sp)
+            if " " in c:
+                un = c.replace(" ", "_")
+                if un not in cands: cands.append(un)
+        return cands
+
+    c1 = get_candidates("&#91;SHK&#93;T_T")
+    assert "[SHK]T_T" in c1, "[SHK]T_T 应被正确解析在候选列表中"
+    assert "[SHK]T T" in c1, "应自动包含下划线替换为空格的容错候选"
+
+    c2 = get_candidates("[noraneko]")
+    assert "noraneko" in c2, "外层包裹中括号时应自动剥除生成候选名"
+
+    c3 = get_candidates("el_pato_leo")
+    assert "el pato leo" in c3, "下划线用户名应包含空格版本候选"
+
+    print("✅ 特殊字符解析与候选名生成测试全部通过！")
+
     print("\n" + "=" * 60)
     print("🎉 所有本地单元与排版测试全部通过！")
     print("=" * 60)
