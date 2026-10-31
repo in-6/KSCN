@@ -83,11 +83,14 @@ class GachaScheduler:
 
             # 1. 检查是否到达预设的停止时间 (防通宵挂机保护)
             if now >= stop_time:
+                # 停机前自动开完最后一批积攒的卡包，充分利用卡包回复
+                self._do_open_pack(uid, user, cookie, gid, is_final=True)
+                fresh_user = storage.get_user(uid) or user
+                session_opened = fresh_user.get("stats", {}).get("session_opened", 0)
                 storage.update_user_fields(uid, is_running=False)
-                session_opened = stats.get("session_opened", 0)
                 send_qq_msg(
                     uid,
-                    f"🔴 [AutoGacha] 挂机已到达设定时间，已自动停止。\n本次挂机共开包: {session_opened} 个",
+                    f"⌛ [AutoGacha] 挂机已到达设定时间，已自动停止。\n本次挂机共开包: {session_opened} 个",
                     gid=gid,
                 )
                 continue
@@ -99,7 +102,7 @@ class GachaScheduler:
             # 3. 执行开包
             self._do_open_pack(uid, user, cookie, gid)
 
-    def _do_open_pack(self, uid: str, user: Dict[str, Any], cookie: str, gid: Optional[str]):
+    def _do_open_pack(self, uid: str, user: Dict[str, Any], cookie: str, gid: Optional[str], is_final: bool = False):
         client = OsugachaClient(cookie)
         now = time.time()
         min_sec = user.get("min_interval", 360)
@@ -115,6 +118,9 @@ class GachaScheduler:
                 send_qq_msg(uid, "❌ [AutoGacha] 登录态已失效，自动开包已暂停，请重新绑定凭据。", gid=gid)
                 return
 
+            if is_final:
+                return
+
             # 其他网络波动，稍等 3 分钟后重试
             next_time = now + random.randint(150, 240)
             storage.update_user_fields(uid, next_pull_time=next_time)
@@ -124,6 +130,8 @@ class GachaScheduler:
         # 兼容数组或字典包裹
         packs = inv_data if isinstance(inv_data, list) else inv_data.get("packs", inv_data.get("items", []))
         if not packs:
+            if is_final:
+                return
             # 暂无可开卡包，等待 4~6 分钟自然回复
             next_time = now + random.randint(240, 360)
             storage.update_user_fields(uid, next_pull_time=next_time)
@@ -186,11 +194,13 @@ class GachaScheduler:
         stats["today_opened"] = stats.get("today_opened", 0) + opened_this_batch
         stats["total_opened"] = stats.get("total_opened", 0) + opened_this_batch
 
-        # 下一次大轮询延时：随机 6 ~ 18 分钟 (拟人化波动)
-        next_delay = random.randint(min_sec, max_sec)
-        next_time = now + next_delay
-
-        storage.update_user_fields(uid, stats=stats, next_pull_time=next_time)
+        if is_final:
+            storage.update_user_fields(uid, stats=stats)
+        else:
+            # 下一次大轮询延时：随机 6 ~ 18 分钟 (拟人化波动)
+            next_delay = random.randint(min_sec, max_sec)
+            next_time = now + next_delay
+            storage.update_user_fields(uid, stats=stats, next_pull_time=next_time)
 
         # 如果抽到稀有卡，立即发 QQ 提醒 (纯文本干净排版)
         for info in rare_findings:

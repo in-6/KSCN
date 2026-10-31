@@ -44,7 +44,7 @@ def show_help(uid: str, gid: Optional[str]):
         "1. 电脑浏览器登录 osugacha.com\n"
         "2. 按键盘 F12（开发者工具）-> 选【网络/Network】\n"
         "3. 刷新页面，在列表中随便找一个请求右键\n"
-        "   -> 复制(Copy) -> 复制为 cURL (Copy as cURL)\n"
+        "   -> 复制 -> 复制为 cURL (选择 Bash 格式)\n"
         "4. 点击机器人头像【私聊】发送：\n"
         "   >gacha bind [粘贴刚复制的整段内容]\n"
         "━━━━━━━━━━━━━━━\n"
@@ -196,7 +196,7 @@ def handle_stop(uid: str, gid: Optional[str]):
 
     send_qq_msg(
         uid,
-        f"🔴 【AutoGacha 挂机已停止】\n本次挂机共开包: {session_opened} 次。",
+        f"⌛ 【AutoGacha 挂机已停止】\n本次挂机共开包: {session_opened} 次。",
         gid=gid,
     )
 
@@ -247,7 +247,7 @@ def handle_stats(uid: str, gid: Optional[str], target_user: Optional[str] = None
         next_sec = max(0, int(next_ts - now))
         next_in_str = f"约 {next_sec // 60} 分钟后"
     else:
-        status_str = "🔴 已停止"
+        status_str = "⌛ 已停止"
         next_in_str = "--"
 
     bot_stats = {

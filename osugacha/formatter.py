@@ -20,8 +20,10 @@ CLASS_MAP = {
 PACK_TYPE_MAP = {
     "basic": "基础卡包",
     "golden": "🟨 黄金卡包",
-    "radiant": "💎 璀璨卡包",
-    "celestial": "🌌 天穹卡包",
+    "legendary": "💎 璀璨卡包",  # 对应官方 slug: "legendary"
+    "radiant": "💎 璀璨卡包",    # 对应别名 radiant
+    "mythic": "🌌 天穹卡包",     # 对应官方 slug: "mythic"
+    "celestial": "🌌 天穹卡包",  # 对应别名 celestial
     "prismatic": "🌈 棱彩卡包",
 }
 
@@ -189,7 +191,7 @@ def format_user_profile(
     if bot_stats:
         lines.append("━━━━━━━━━━━━━━━")
         lines.append("⚙️ 【自动开卡】")
-        lines.append(f"• 挂机状态：{bot_stats.get('status_str', '🔴 已停止')}")
+        lines.append(f"• 挂机状态：{bot_stats.get('status_str', '⏹️ 已停止')}")
         if pack_info_str:
             lines.append(f"• 可用卡包：{pack_info_str}")
         if pity_info_str:
