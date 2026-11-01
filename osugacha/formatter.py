@@ -154,8 +154,9 @@ def format_user_profile(
     level = stats.get("level", {}).get("level", 1)
     power = stats.get("team", {}).get("power", 0)
 
-    # 爬塔
-    floor = stats.get("tower", {}).get("floor", 0)
+    # 深渊 (1.0 替代原爬塔)
+    depths = stats.get("depths") or {}
+    floor = depths.get("best", stats.get("tower", {}).get("floor", 0))
 
     # 天梯 PVP
     pvp = stats.get("pvp") or {}
@@ -180,10 +181,9 @@ def format_user_profile(
         f"• 公会：{guild_str}",
         f"• 等级：Lv.{level}",
         f"• 战力：⚔️ {power:,}",
-        f"• 爬塔：🗼 第 {floor} 层",
+        f"• 深渊：🌀 第 {floor} 层",
         f"• 天梯：🏆 {rating} 分 ({wins}胜 {losses}负)",
-        f"• 资产：⭐ {value:,}",
-        f"• 藏卡：📦 {cards_count:,} 张",
+        f"• 藏卡：📦 {cards_count:,} 张 (价值：⭐{value:,})",
         f"• 图鉴：📚 {caught:,} / {total:,} ({pct:.2f}%)",
     ]
 

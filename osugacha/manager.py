@@ -4,7 +4,7 @@ from typing import Optional
 
 from .client import OsugachaClient, extract_cookie_from_text
 from .storage import storage, ensure_daily_stats
-from .scheduler import send_qq_msg, scheduler, HIGHLIGHT_RARITIES
+from .scheduler import send_qq_msg, scheduler
 from .formatter import format_pack_results, format_user_profile, get_pack_name, parse_card_info
 
 
@@ -368,13 +368,12 @@ def handle_manual_pull(uid: str, gid: Optional[str]):
 
     for card in pulled_cards:
         info = parse_card_info(card)
-        if info["rarity_key"] in HIGHLIGHT_RARITIES:
-            curr_level = stats.get("today_best_level", 0)
-            if info["rarity_level"] >= curr_level:
-                card_str = f"{info['rarity_icon']} [{info['rarity_name']}] {info['username']}"
-                stats["today_best"] = card_str
-                stats["best_pull"] = card_str
-                stats["today_best_level"] = info["rarity_level"]
+        curr_level = stats.get("today_best_level", 0)
+        if info["rarity_level"] >= curr_level:
+            card_str = f"{info['rarity_icon']} [{info['rarity_name']}] {info['username']}"
+            stats["today_best"] = card_str
+            stats["best_pull"] = card_str
+            stats["today_best_level"] = info["rarity_level"]
 
     storage.update_user_fields(uid, stats=stats)
 

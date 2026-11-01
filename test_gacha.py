@@ -115,7 +115,7 @@ def run_unit_tests():
         "stats": {
             "level": {"level": 12},
             "team": {"power": 27360},
-            "tower": {"floor": 64},
+            "depths": {"best": 2},
             "pvp": {"rating": 955, "wins": 1, "losses": 5},
             "collection": {"value": 26891, "cards": 3207},
             "dex": {"caught": 6171, "total": 92440}
@@ -140,7 +140,7 @@ def run_unit_tests():
     assert "• 挂机状态：🟢 运行中 (剩余 1小时15分)" in profile_self
     assert "• 可用卡包：🎁 2 / 10 包 (自然回复中) · 🟨 黄金卡包 x1" in profile_self
     assert "• 传说保底：🟡 17 / 80 包 (还差 63 包)" in profile_self
-    assert "• 资产：⭐ 26,891" in profile_self
+    assert "• 藏卡：📦 3,207 张 (价值：⭐26,891)" in profile_self
     # 确保 挂机状态 -> 可用卡包 -> 传说保底
     assert profile_self.index("• 挂机状态：") < profile_self.index("• 可用卡包：") < profile_self.index("• 传说保底：")
 
@@ -219,6 +219,29 @@ def run_unit_tests():
     assert "el pato leo" in c3, "下划线用户名应包含空格版本候选"
 
     print("✅ 特殊字符解析与候选名生成测试全部通过！")
+
+    # 8. 测试高稀有度群播报门槛与个人面板最佳出货解耦
+    print("\n[测试 8] 测试高稀有度群播报门槛 (仅Mythic/Divine) 及个人面板统计解耦...")
+    from osugacha.scheduler import HIGHLIGHT_RARITIES
+    assert "legendary" not in HIGHLIGHT_RARITIES, "传说卡(Legendary)应从群聊广播列表中移除，防止频繁刷屏"
+    assert "mythic" in HIGHLIGHT_RARITIES, "神话卡(Mythic)必须保留在群播报列表"
+    assert "divine" in HIGHLIGHT_RARITIES, "神圣卡(Divine)必须保留在群播报列表"
+
+    # 测试普通开包出 Legendary 时，依然更新个人面板的最佳出货
+    test_user_stats = {"date": datetime.date.today().isoformat(), "today_opened": 0, "today_best": "暂无", "today_best_level": 0}
+    sample_cards = [
+        {"player": {"username": "BTMC", "countryCode": "US", "globalRank": 50, "cls": "dps"}, "rarity": "epic"},
+        {"player": {"username": "Cookiezi", "countryCode": "KR", "globalRank": 1, "cls": "dps"}, "rarity": "legendary"}
+    ]
+    from osugacha.formatter import parse_card_info
+    for c in sample_cards:
+        info = parse_card_info(c)
+        if info["rarity_level"] >= test_user_stats["today_best_level"]:
+            test_user_stats["today_best"] = f"{info['rarity_icon']} [{info['rarity_name']}] {info['username']}"
+            test_user_stats["today_best_level"] = info["rarity_level"]
+    assert "🟡 [Legendary] Cookiezi" in test_user_stats["today_best"], "个人面板应成功记录今日最佳为传说卡"
+    assert test_user_stats["today_best_level"] == 5, "今日最佳稀有度等级应为 5 (Legendary)"
+    print("✅ 高稀有度群播报门槛与个人面板解耦测试全部通过！")
 
     print("\n" + "=" * 60)
     print("🎉 所有本地单元与排版测试全部通过！")

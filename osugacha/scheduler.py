@@ -10,9 +10,8 @@ from .formatter import parse_card_info, format_card_line, RARITY_CONFIG
 
 ONEBOT_API_URL = "http://127.0.0.1:5700"
 
-# 关注的高稀有度列表：仅当开出传说(Legendary)及以上品质时才主动推送 QQ 提醒
+# 关注的高稀有度列表：仅当开出神话(Mythic)及神圣(Divine)品质时才主动推送 QQ 群聊欧气提醒，避免传说卡(Legendary)频繁刷屏
 HIGHLIGHT_RARITIES = {
-    "legendary": "Legendary",
     "mythic": "Mythic",
     "divine": "Divine",
 }
@@ -176,15 +175,17 @@ class GachaScheduler:
 
             for card in pulled_cards:
                 info = parse_card_info(card)
+                # 仅神话(Mythic)和神圣(Divine)进入群聊欧气播报列表
                 if info["rarity_key"] in HIGHLIGHT_RARITIES:
                     rare_findings.append(info)
-                    # 记录今日最高出货
-                    curr_level = stats.get("today_best_level", 0)
-                    if info["rarity_level"] >= curr_level:
-                        card_str = f"{info['rarity_icon']} [{info['rarity_name']}] {info['username']}"
-                        stats["today_best"] = card_str
-                        stats["best_pull"] = card_str
-                        stats["today_best_level"] = info["rarity_level"]
+
+                # 个人面板记录今日最高出货（不受群聊播报门槛限制，Legendary、Epic等均可记录）
+                curr_level = stats.get("today_best_level", 0)
+                if info["rarity_level"] >= curr_level:
+                    card_str = f"{info['rarity_icon']} [{info['rarity_name']}] {info['username']}"
+                    stats["today_best"] = card_str
+                    stats["best_pull"] = card_str
+                    stats["today_best_level"] = info["rarity_level"]
 
             # 关键拟人化安全间隔：连开多包时，模拟真实玩家看牌停顿 1.8 ~ 3.5 秒，绝不秒点下一包
             time.sleep(random.uniform(1.8, 3.5))
