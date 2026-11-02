@@ -206,6 +206,112 @@ def run_unit_tests():
     assert test_user_stats["today_best_level"] == 5, "今日最佳稀有度等级应为 5 (Legendary)"
     print("✅ 高稀有度群播报门槛与个人面板解耦测试全部通过！")
 
+    # 9. 测试 get_api_key 提取
+    print("\n[测试 9] 测试官方只读 API Key 解析...")
+    from osugacha.client import get_api_key
+    key = get_api_key()
+    print(f"提取到的 API Key: {key[:10]}... (长度: {len(key) if key else 0})")
+    assert key and key.startswith("og_"), "kscnconfig.json 中的 gacha_apikey 必须能被自动正确提取"
+    print("✅ API Key 自动读取测试通过！")
+
+    # 10. 测试新排版函数 (卡片行情含近30天成交中位数、Mod、物品、持有者榜单)
+    print("\n[测试 10] 测试重构版市场行情 (-c, -m, -i 及成交指导价) 与持有者榜单排版...")
+    from osugacha.formatter import format_market_listings, format_player_owners
+
+    sample_market_card = {
+        "total": 5,
+        "items": [
+            {
+                "price": 50000,
+                "seller": {"username": "Alice"},
+                "card": {
+                    "rarity": "divine",
+                    "serialNo": 12,
+                    "player": {"username": "BTMC"}
+                }
+            }
+        ]
+    }
+    sample_guide = {
+        "sales": 295,
+        "days": 30,
+        "median": 5000,
+        "highest": 25000,
+        "lowest": 6800,
+        "listed": 18,
+    }
+    market_card_text = format_market_listings(sample_market_card, kind="card", query="BTMC", guide=sample_guide)
+    print("\n【卡片行情与近30天成交展示】:\n" + market_card_text)
+    assert "🛒 【osu!gacha 市场行情 · BTMC】" in market_card_text
+    assert "295" in market_card_text
+    assert "5,000" in market_card_text
+    assert "25,000" in market_card_text
+    assert "Alice" in market_card_text
+
+    # 测试 Mod 格式化
+    sample_market_mod = {
+        "total": 42,
+        "items": [
+            {
+                "price": 1999,
+                "seller": {"username": "Ink_Sakura"},
+                "mod": {
+                    "type": "pf",
+                    "rarity": 5,
+                    "level": 15,
+                    "main": {"stat": "atkPct", "value": 0.432}
+                }
+            }
+        ]
+    }
+    market_mod_text = format_market_listings(sample_market_mod, kind="mod")
+    print("\n【Mod 市场展示】:\n" + market_mod_text)
+    assert "🛒 【osu!gacha 市场行情 · 最新 Mod】" in market_mod_text
+    assert "PF+15" in market_mod_text
+    assert "攻击 +43.2%" in market_mod_text
+
+    # 测试物品格式化
+    sample_market_item = {
+        "total": 10,
+        "items": [
+            {
+                "price": 2000,
+                "seller": {"username": "10002030p"},
+                "item": {"id": "insignia_tank_3", "qty": 20}
+            }
+        ]
+    }
+    market_item_text = format_market_listings(sample_market_item, kind="item")
+    print("\n【物品市场展示】:\n" + market_item_text)
+    assert "🛒 【osu!gacha 市场行情 · 最新物品】" in market_item_text
+    assert "坦克金徽章" in market_item_text
+    assert "x20" in market_item_text
+    assert "单价: ⭐100" in market_item_text
+
+    sample_owners = [
+        {"username": "Bob", "count": 5, "bestRarity": "divine", "lowest": 1, "value": 12000}
+    ]
+    owners_text = format_player_owners(sample_owners, "BTMC")
+    print("\n【持有者榜单展示】:\n" + owners_text)
+    assert "👑 【BTMC · 卡片持有榜】" in owners_text
+    assert "Bob" in owners_text
+    assert "最低#1" in owners_text
+    print("✅ 市场与持有者榜单排版测试全部通过！")
+
+    # 11. 测试 manager 新指令派发 (>gacha mkt, >gacha mkt -c, -m, -i, --sig, --auc, >gacha owners)
+    print("\n[测试 11] 测试 manager 重构指令派发与容错 (含 --sig 签名卡与 --auc 拍卖)...")
+    with patch("requests.post", side_effect=mock_send_qq):
+        handle_gacha_command(">gacha mkt", test_uid, gid=test_gid)
+        handle_gacha_command(">gacha mkt -c BTMC", test_uid, gid=test_gid)
+        handle_gacha_command(">gacha mkt -c Camo --sig", test_uid, gid=test_gid)
+        handle_gacha_command(">gacha mkt --sig", test_uid, gid=test_gid)
+        handle_gacha_command(">gacha mkt --auc", test_uid, gid=test_gid)
+        handle_gacha_command(">gacha mkt nebuwua --auc", test_uid, gid=test_gid)
+        handle_gacha_command(">gacha mkt -m --auc", test_uid, gid=test_gid)
+        handle_gacha_command(">gacha mkt -i --auc", test_uid, gid=test_gid)
+        handle_gacha_command(">gacha owners", test_uid, gid=test_gid)
+    print("✅ 重构指令派发测试全部通过！")
+
     print("\n" + "=" * 60)
     print("🎉 所有本地单元与排版测试全部通过！")
     print("=" * 60)
