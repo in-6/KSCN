@@ -68,39 +68,18 @@ def run_unit_tests():
         print("\n[测试 2] 测试群聊触发 >gacha help（检查是否有 @群友）...")
         handle_gacha_command(">gacha help", test_uid, gid=test_gid)
 
-        # 3. 测试群聊中误发 >gacha bind（验证安全防泄露拦截）
-        print("\n[测试 3] 测试群聊中误发 >gacha bind（应被拦截并提示私聊）...")
+        # 3. 测试群聊中发送 >gacha bind / >gacha on（验证下线安全拦截）
+        print("\n[测试 3] 测试触发已下线的挂机/绑定指令（应拦截并提示功能下线）...")
         handle_gacha_command(">gacha bind curl 'https://...'", test_uid, gid=test_gid)
-
-        # 4. 模拟写入测试用户并测试状态查看
-        print("\n[测试 4] 模拟用户状态查看与挂机开关...")
-        storage.save_user(str(test_uid), {
-            "cookie": "mock_cookie_for_test",
-            "osu_username": "TestPlayer",
-            "osu_id": 9999,
-            "is_running": False,
-            "stop_timestamp": 0,
-            "next_pull_time": 0,
-            "min_interval": 360,
-            "max_interval": 1080,
-            "gid": test_gid,
-            "stats": {"session_opened": 0, "total_opened": 5, "best_pull": "[Epic] btmc"}
-        })
-
-        # 查看状态
-        handle_gacha_command(">gacha stats", test_uid, gid=test_gid)
-
-        # 开启挂机 3 小时
         handle_gacha_command(">gacha on 3", test_uid, gid=test_gid)
-
-        # 再次查看状态（应为运行中）
-        handle_gacha_command(">gacha stats", test_uid, gid=test_gid)
-
-        # 停止挂机
         handle_gacha_command(">gacha off", test_uid, gid=test_gid)
 
-        # 清理测试用户
-        storage.delete_user(str(test_uid))
+        # 4. 测试公开查询状态与参数容错
+        print("\n[测试 4] 测试 >gacha stats 查询命令（参数缺失与合法查询）...")
+        # 不带参数应提示用法
+        handle_gacha_command(">gacha stats", test_uid, gid=test_gid)
+        # 带参数应触发公开查询
+        handle_gacha_command(">gacha stats noraneko", test_uid, gid=test_gid)
 
     # 5. 测试 format_user_profile 与 format_pack_results 样式
     print("\n[测试 5] 测试 format_user_profile 与品质卡包排版...")
@@ -115,39 +94,23 @@ def run_unit_tests():
         "stats": {
             "level": {"level": 12},
             "team": {"power": 27360},
+            "tower": {"floor": 50},
             "depths": {"best": 2},
             "pvp": {"rating": 955, "wins": 1, "losses": 5},
             "collection": {"value": 26891, "cards": 3207},
             "dex": {"caught": 6171, "total": 92440}
         }
     }
-    bot_stats = {
-        "is_running": True,
-        "status_str": "🟢 运行中 (剩余 1小时15分)",
-        "next_in_str": "约 7 分钟后",
-        "total_opened": 36,
-        "best_pull": "🟡 [Legendary] Cookiezi",
-    }
-    # 模拟自己查看个人主页
-    profile_self = format_user_profile(
-        sample_profile,
-        pack_info_str="🎁 2 / 10 包 (自然回复中) · 🟨 黄金卡包 x1",
-        pity_info_str="🟡 17 / 80 包 (还差 63 包)",
-        bot_stats=bot_stats
-    )
-    print("\n【查自己个人信息效果展示】:\n" + profile_self)
-    assert "⚙️ 【自动开卡】" in profile_self
-    assert "• 挂机状态：🟢 运行中 (剩余 1小时15分)" in profile_self
-    assert "• 可用卡包：🎁 2 / 10 包 (自然回复中) · 🟨 黄金卡包 x1" in profile_self
-    assert "• 传说保底：🟡 17 / 80 包 (还差 63 包)" in profile_self
-    assert "• 藏卡：📦 3,207 张 (价值：⭐26,891)" in profile_self
-    # 确保 挂机状态 -> 可用卡包 -> 传说保底
-    assert profile_self.index("• 挂机状态：") < profile_self.index("• 可用卡包：") < profile_self.index("• 传说保底：")
-
-    # 模拟查他人个人主页 (不含自动开卡部分)
-    profile_other = format_user_profile(sample_profile)
-    print("\n【查他人个人信息效果展示】:\n" + profile_other)
-    assert "⚙️ 【自动开卡】" not in profile_other
+    # 模拟查看玩家公开个人主页
+    profile_text = format_user_profile(sample_profile)
+    print("\n【玩家公开个人信息效果展示】:\n" + profile_text)
+    assert "• 玩家：noraneko [CN] (ID: 17945067)" in profile_text
+    assert "• 战力：⚔️ 27,360" in profile_text
+    assert "• 爬塔：🗼 第 50 层" in profile_text
+    assert "• 深渊：🌀 第 2 层" in profile_text
+    assert "• 藏卡：📦 3,207 张 (价值：⭐26,891)" in profile_text
+    assert "• 图鉴：📚 6,171 / 92,440 (6.68%)" in profile_text
+    assert "⚙️ 【自动开卡】" not in profile_text
 
     # 模拟开包排版 (带品质显示)
     sample_pulled = [

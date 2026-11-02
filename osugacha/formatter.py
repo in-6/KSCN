@@ -122,15 +122,9 @@ def format_pack_results(pulled_cards: List[Dict[str, Any]], pack_name: Optional[
     )
 
 
-def format_user_profile(
-    profile_data: Dict[str, Any],
-    pack_info_str: Optional[str] = None,
-    pity_info_str: Optional[str] = None,
-    bot_stats: Optional[Dict[str, Any]] = None,
-) -> str:
+def format_user_profile(profile_data: Dict[str, Any]) -> str:
     """
-    格式化用户个人信息面板
-    - pack_info_str 和 bot_stats 存在时为“查自己”，否则为“查他人”
+    格式化玩家公开个人信息面板
     """
     user = profile_data.get("user", {})
     stats = profile_data.get("stats", {})
@@ -154,9 +148,11 @@ def format_user_profile(
     level = stats.get("level", {}).get("level", 1)
     power = stats.get("team", {}).get("power", 0)
 
-    # 深渊 (1.0 替代原爬塔)
+    # 爬塔 (Tower - 向上探索) 与 深渊 (Depths - 向下探索)
+    tower = stats.get("tower") or {}
+    tower_floor = tower.get("floor", 0)
     depths = stats.get("depths") or {}
-    floor = depths.get("best", stats.get("tower", {}).get("floor", 0))
+    depths_floor = depths.get("best", 0)
 
     # 天梯 PVP
     pvp = stats.get("pvp") or {}
@@ -181,24 +177,11 @@ def format_user_profile(
         f"• 公会：{guild_str}",
         f"• 等级：Lv.{level}",
         f"• 战力：⚔️ {power:,}",
-        f"• 深渊：🌀 第 {floor} 层",
+        f"• 爬塔：🗼 第 {tower_floor} 层",
+        f"• 深渊：🌀 第 {depths_floor} 层",
         f"• 天梯：🏆 {rating} 分 ({wins}胜 {losses}负)",
         f"• 藏卡：📦 {cards_count:,} 张 (价值：⭐{value:,})",
         f"• 图鉴：📚 {caught:,} / {total:,} ({pct:.2f}%)",
     ]
-
-    # 如果有自动开卡状态信息 (查自己)
-    if bot_stats:
-        lines.append("━━━━━━━━━━━━━━━")
-        lines.append("⚙️ 【自动开卡】")
-        lines.append(f"• 挂机状态：{bot_stats.get('status_str', '⏹️ 已停止')}")
-        if pack_info_str:
-            lines.append(f"• 可用卡包：{pack_info_str}")
-        if pity_info_str:
-            lines.append(f"• 传说保底：{pity_info_str}")
-        if bot_stats.get("is_running"):
-            lines.append(f"• 下次开包：{bot_stats.get('next_in_str', '--')}")
-        lines.append(f"• 今日开包：{bot_stats.get('today_opened', bot_stats.get('total_opened', 0))} 包")
-        lines.append(f"• 今日最佳：{bot_stats.get('today_best', bot_stats.get('best_pull', '暂无'))}")
 
     return "\n".join(lines)
