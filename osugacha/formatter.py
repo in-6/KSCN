@@ -205,6 +205,7 @@ STAT_NAMES = {
     "hpPct": "生命",
     "def": "防御",
     "defPct": "防御",
+    "spd": "速度",
     "speed": "速度",
     "critRate": "暴击率",
     "critDmg": "暴击伤害",
@@ -222,24 +223,51 @@ ITEM_NAMES = {
     "replay_1": "📼 铜回放",
     "replay_2": "📼 银回放",
     "replay_3": "📼 金回放",
-    "insignia_tank_1": "🛡️ 坦克铜徽章",
-    "insignia_tank_2": "🛡️ 坦克银徽章",
-    "insignia_tank_3": "🛡️ 坦克金徽章",
-    "insignia_dps_1": "⚔️ 输出铜徽章",
-    "insignia_dps_2": "⚔️ 输出银徽章",
-    "insignia_dps_3": "⚔️ 输出金徽章",
-    "insignia_support_1": "💚 辅助铜徽章",
-    "insignia_support_2": "💚 辅助银徽章",
-    "insignia_support_3": "💚 辅助金徽章",
-    "insignia_cc_1": "🌀 控制铜徽章",
-    "insignia_cc_2": "🌀 控制银徽章",
-    "insignia_cc_3": "🌀 控制金徽章",
-    "boss_trophy": "🏆 金奖杯",
+    "insignia_tank_1": "🛡️ 坦克I徽章",
+    "insignia_tank_2": "🛡️ 坦克II徽章",
+    "insignia_tank_3": "🛡️ 坦克III徽章",
+    "insignia_tank_4": "🛡️ 坦克IV徽章",
+    "insignia_dps_1": "⚔️ 输出I徽章",
+    "insignia_dps_2": "⚔️ 输出II徽章",
+    "insignia_dps_3": "⚔️ 输出III徽章",
+    "insignia_dps_4": "⚔️ 输出IV徽章",
+    "insignia_support_1": "💚 辅助I徽章",
+    "insignia_support_2": "💚 辅助II徽章",
+    "insignia_support_3": "💚 辅助III徽章",
+    "insignia_support_4": "💚 辅助IV徽章",
+    "insignia_cc_1": "🌀 控制I徽章",
+    "insignia_cc_2": "🌀 控制II徽章",
+    "insignia_cc_3": "🌀 控制III徽章",
+    "insignia_cc_4": "🌀 控制IV徽章",
+    "boss_trophy": "🏆 Boss奖杯",
     "platinum_trophy": "🏆 白金奖杯",
     "diamond_trophy": "💎 钻石奖杯",
     "emerald_trophy": "🟢 翡翠奖杯",
-    "mod_fragment": "🧩 Mod 碎片",
+    "mod_fragment": "🧩 Mod碎片",
 }
+
+SETUP_KIND_NAMES = {
+    "tablet": "🖊️数位板",
+    "mouse": "🖱️鼠标",
+    "keyboard": "⌨️键盘",
+    "touchscreen": "📱触屏",
+    "editor": "🎛️编辑器",
+}
+
+SETUP_TIER_INFO = {
+    2: ("⚪", "1级"),
+    3: ("🟢", "2级"),
+    4: ("🔵", "3级"),
+    5: ("🟡", "4级"),
+    6: ("🔴", "5级"),
+}
+
+STONE_KIND_NAMES = {
+    "sharp": "🔪 锐石 (Sharp)",
+    "gem": "💎 宝石 (Gem)",
+}
+
+ROMAN_GRADES = {1: "I", 2: "II", 3: "III"}
 
 
 def format_mod_main_stat(main: Optional[Dict[str, Any]]) -> str:
@@ -299,6 +327,144 @@ def format_time_remaining(ends_at_str: Optional[str]) -> str:
         return ""
 
 
+def _format_guide_block(
+    guide: Dict[str, Any],
+    total: int,
+    type_desc: str = "卡牌",
+    unit_label: str = "张",
+) -> List[str]:
+    """统一格式化近 30 天官方成交指导价统计块"""
+    sales = guide.get("sales", 0)
+    days = guide.get("days", 30)
+    median = guide.get("median")
+    highest = guide.get("highest")
+    lowest_guide = guide.get("lowest")
+    listed = guide.get("listed", total)
+
+    median_str = f"⭐{median:,.0f}" if isinstance(median, (int, float)) else (f"⭐{median}" if median is not None else "暂无")
+    highest_str = f"⭐{highest:,}" if isinstance(highest, (int, float)) else (f"⭐{highest}" if highest is not None else "暂无")
+    lowest_str = f"⭐{lowest_guide:,}" if isinstance(lowest_guide, (int, float)) else (f"⭐{lowest_guide}" if lowest_guide is not None else "暂无")
+
+    return [
+        f"📊 【近 {days} 天{type_desc}成交统计】",
+        f"• 成交频次：累计成交 {sales:,} 次",
+        f"• 中位售价：{median_str}",
+        f"• 历史最高：{highest_str}",
+        f"• 当前在售：{listed:,} {unit_label} (最低在售: {lowest_str})",
+        "━━━━━━━━━━━━━━━",
+    ]
+
+
+def format_item_book_summary(book_data: Dict[str, Any]) -> str:
+    """
+    格式化全服物品实时盘口总览 (GET /api/market/book)
+    """
+    items = book_data.get("items", [])
+    header = "🛒 【osu!gacha 物品实时盘口总览】"
+    if not items:
+        return f"{header}\n━━━━━━━━━━━━━━━\n暂无物品盘口数据。"
+
+    # 精选常用核心物品顺序展示，附带查询短码避免黑箱
+    priority_items = [
+        ("fuel", "fuel"),
+        ("banner_key", "key"),
+        ("replay_1", "replay1"),
+        ("replay_2", "replay2"),
+        ("replay_3", "replay3"),
+        ("boss_trophy", "trophy1"),
+        ("platinum_trophy", "trophy2"),
+        ("diamond_trophy", "trophy3"),
+        ("emerald_trophy", "trophy4"),
+        ("insignia_dps_3", "dps3"),
+        ("insignia_dps_4", "dps4"),
+        ("insignia_tank_3", "tank3"),
+        ("insignia_tank_4", "tank4"),
+        ("insignia_support_3", "support3"),
+        ("insignia_support_4", "support4"),
+        ("insignia_cc_3", "cc3"),
+        ("insignia_cc_4", "cc4"),
+        ("mod_fragment", "fragment"),
+    ]
+    item_map = {it.get("itemId"): it for it in items}
+
+    lines = [
+        header,
+        "━━━━━━━━━━━━━━━",
+        "格式：物品 [查询码]：最低卖价 / 最高买价",
+        "━━━━━━━━━━━━━━━",
+    ]
+    for iid, short_code in priority_items:
+        it = item_map.get(iid)
+        if not it:
+            continue
+        name = ITEM_NAMES.get(iid, iid)
+        buy_p = it.get("buy")
+        sell_p = it.get("sell")
+        offered = it.get("offered", 0)
+        buy_str = f"⭐{buy_p:,}" if buy_p is not None else "无货"
+        sell_str = f"⭐{sell_p:,}" if sell_p is not None else "无求购"
+        lines.append(f"• {name} [{short_code}]：{buy_str} / {sell_str} (在售 {offered:,})")
+
+    lines.append("━━━━━━━━━━━━━━━")
+    lines.append("💡 查单品详细盘口与均价：`>gacha mkt -i <查询码>` (徽章还支持 dps1/2、tank1/2 等)")
+    return "\n".join(lines)
+
+
+def format_item_book_detail(
+    item_id: str,
+    book_detail: Dict[str, Any],
+    days_data: Optional[Dict[str, Any]] = None,
+) -> str:
+    """
+    格式化单个物品的实时买卖单盘口与近期成交中位价趋势
+    """
+    name = ITEM_NAMES.get(item_id, f"📦 {item_id}")
+    sells = book_detail.get("sells", [])
+    buys = book_detail.get("buys", [])
+    offered = book_detail.get("offered", 0)
+    wanted = book_detail.get("wanted", 0)
+
+    lines = [
+        f"🛒 【osu!gacha 物品行情 · {name}】",
+        "━━━━━━━━━━━━━━━",
+    ]
+
+    # 近 30 天与近 7 天成交统计
+    if days_data and days_data.get("days"):
+        days_list = days_data.get("days", [])
+        total_sales_30 = sum(d.get("sales", 0) for d in days_list)
+        total_units_30 = sum(d.get("units", 0) for d in days_list)
+        recent_7 = days_list[-7:]
+        medians_7 = [d.get("median") for d in recent_7 if isinstance(d.get("median"), (int, float))]
+        avg_med_7 = (sum(medians_7) / len(medians_7)) if medians_7 else None
+        latest_day = days_list[-1]
+        latest_med = latest_day.get("median")
+
+        lines.append("📊 【近期成交趋势】")
+        lines.append(f"• 近30天成交：{total_sales_30:,} 笔 (共 {total_units_30:,} 个)")
+        if latest_med is not None:
+            lines.append(f"• 最新日均中位：⭐{latest_med:,.1f} ({latest_day.get('day', '')})")
+        if avg_med_7 is not None:
+            lines.append(f"• 近7日中位均值：⭐{avg_med_7:,.1f}")
+        lines.append("━━━━━━━━━━━━━━━")
+
+    lines.append(f"📤 【最低卖单 (总在售 {offered:,})】")
+    if sells:
+        for idx, s in enumerate(sells[:5], 1):
+            lines.append(f"  {idx}. ⭐{s.get('price', 0):,} × {s.get('qty', 0):,}")
+    else:
+        lines.append("  暂无在售卖单")
+
+    lines.append(f"📥 【最高求购 (总求购 {wanted:,})】")
+    if buys:
+        for idx, b in enumerate(buys[:5], 1):
+            lines.append(f"  {idx}. ⭐{b.get('price', 0):,} × {b.get('qty', 0):,}")
+    else:
+        lines.append("  暂无求购订单")
+
+    return "\n".join(lines)
+
+
 def format_market_listings(
     data: Dict[str, Any],
     kind: str = "card",
@@ -308,7 +474,7 @@ def format_market_listings(
     is_auction: bool = False,
 ) -> str:
     """
-    格式化市场挂单列表 (重构版: 支持 -c 卡片, -m Mod, -i 物品, --sig 签名卡, --auc 拍卖, 以及近30天成交均价/中位数分析)
+    格式化市场挂单列表 (支持 -c 卡片, -m Mod, -i 物品, -d 外设, -st 强化石, --sig 签名卡, --auc 拍卖, 以及近30天成交指导价)
     """
     total = data.get("total", 0)
     items = data.get("items", [])
@@ -316,15 +482,20 @@ def format_market_listings(
     mode_name = "市场拍卖" if is_auction else "市场行情"
 
     if kind == "mod":
-        header = f"{mode_icon} 【osu!gacha {mode_name} · 最新 Mod】"
+        title_part = f" · Mod ({query})" if query else " · 最新 Mod"
+        header = f"{mode_icon} 【osu!gacha {mode_name}{title_part}】"
+        lines = [header, "━━━━━━━━━━━━━━━"]
+        if query and guide:
+            lines.extend(_format_guide_block(guide, total, type_desc="同类 Mod", unit_label="个"))
         if not items:
-            return f"{header}\n━━━━━━━━━━━━━━━\n暂无{('拍卖中的' if is_auction else '在售')} Mod。"
-        lines = [
-            header,
-            "━━━━━━━━━━━━━━━",
-            f"{('拍卖总量' if is_auction else '在售总量')}：{total:,} 个 (展示最新 {len(items)} 个)",
-            "━━━━━━━━━━━━━━━",
-        ]
+            lines.append(f"暂无{('拍卖中的' if is_auction else '在售')} Mod。")
+            return "\n".join(lines)
+        list_desc = (
+            f"🏷️ 【当前正在拍卖 (前 {len(items)} 个)】"
+            if is_auction
+            else (f"🏷️ 【当前最低在售 (共 {total:,} 个，前 {len(items)} 个)】" if query else f"在售总量：{total:,} 个 (展示最新 {len(items)} 个)")
+        )
+        lines.append(list_desc)
         for idx, item in enumerate(items, 1):
             price = item.get("price", 0)
             seller = item.get("seller", {}).get("username", "神秘卖家")
@@ -347,14 +518,87 @@ def format_market_listings(
                 lines.append(f"{idx}. ⭐{price:,} | 卖家: {seller}\n   {icon} {m_type}+{level} [{r_name}] ({main_stat})")
         return "\n".join(lines)
 
+    elif kind == "setup":
+        title_part = f" · 外设 ({query})" if query else " · 最新外设"
+        header = f"{mode_icon} 【osu!gacha {mode_name}{title_part}】"
+        lines = [header, "━━━━━━━━━━━━━━━"]
+        if query and guide:
+            lines.extend(_format_guide_block(guide, total, type_desc="同类外设", unit_label="件"))
+        if not items:
+            lines.append(f"暂无{('拍卖中的' if is_auction else '在售')}外设。")
+            return "\n".join(lines)
+        list_desc = (
+            f"🏷️ 【当前正在拍卖 (前 {len(items)} 件)】"
+            if is_auction
+            else (f"🏷️ 【当前最低在售 (共 {total:,} 件，前 {len(items)} 件)】" if query else f"在售总量：{total:,} 件 (展示最新 {len(items)} 件)")
+        )
+        lines.append(list_desc)
+        for idx, item in enumerate(items, 1):
+            price = item.get("price", 0)
+            seller = item.get("seller", {}).get("username", "神秘卖家")
+            s = item.get("setup", {}) or {}
+            s_kind = SETUP_KIND_NAMES.get(s.get("kind", ""), s.get("kind", "外设"))
+            ult = s.get("ultimate", "")
+            g_sum = s.get("gradeSum", 2)
+            t_icon, t_name = SETUP_TIER_INFO.get(g_sum, ("▫️", f"总阶{g_sum}"))
+            attrs = s.get("attrs") or []
+            attr_str = " / ".join(f"{a.get('id', '')} {ROMAN_GRADES.get(a.get('grade', 1), str(a.get('grade', 1)))}" for a in attrs)
+
+            if is_auction:
+                auc = item.get("auction") or {}
+                bids = auc.get("bids", 0)
+                leader = auc.get("leader", {}).get("username") if auc.get("leader") else None
+                rem_str = format_time_remaining(auc.get("endsAt"))
+                rem_tag = f" ({rem_str})" if rem_str else ""
+                bid_status = f"当前⭐{price:,} ({bids}次出价) | 领先: {leader}{rem_tag}" if (bids > 0 and leader) else f"起拍⭐{price:,} (暂无出价) | 发起: {seller}{rem_tag}"
+                lines.append(f"{idx}. 🔨 {bid_status}\n   {t_icon} [{t_name}] {s_kind} · {ult} ({attr_str})")
+            else:
+                lines.append(f"{idx}. ⭐{price:,} | 卖家: {seller}\n   {t_icon} [{t_name}] {s_kind} · {ult} ({attr_str})")
+        return "\n".join(lines)
+
+    elif kind == "stone":
+        title_part = f" · 强化石 ({query})" if query else " · 最新强化石"
+        header = f"{mode_icon} 【osu!gacha {mode_name}{title_part}】"
+        lines = [header, "━━━━━━━━━━━━━━━"]
+        if query and guide:
+            lines.extend(_format_guide_block(guide, total, type_desc="同类强化石", unit_label="颗"))
+        if not items:
+            lines.append(f"暂无{('拍卖中的' if is_auction else '在售')}强化石。")
+            return "\n".join(lines)
+        list_desc = (
+            f"🏷️ 【当前正在拍卖 (前 {len(items)} 颗)】"
+            if is_auction
+            else (f"🏷️ 【当前最低在售 (共 {total:,} 颗，前 {len(items)} 颗)】" if query else f"在售总量：{total:,} 颗 (展示最新 {len(items)} 颗)")
+        )
+        lines.append(list_desc)
+        for idx, item in enumerate(items, 1):
+            price = item.get("price", 0)
+            seller = item.get("seller", {}).get("username", "神秘卖家")
+            st = item.get("stone", {}) or {}
+            st_kind = STONE_KIND_NAMES.get(st.get("kind", ""), st.get("kind", "强化石"))
+            stat_str = format_mod_main_stat({"stat": st.get("stat", ""), "value": st.get("value", 0)})
+
+            if is_auction:
+                auc = item.get("auction") or {}
+                bids = auc.get("bids", 0)
+                leader = auc.get("leader", {}).get("username") if auc.get("leader") else None
+                rem_str = format_time_remaining(auc.get("endsAt"))
+                rem_tag = f" ({rem_str})" if rem_str else ""
+                bid_status = f"当前⭐{price:,} ({bids}次出价) | 领先: {leader}{rem_tag}" if (bids > 0 and leader) else f"起拍⭐{price:,} (暂无出价) | 发起: {seller}{rem_tag}"
+                lines.append(f"{idx}. 🔨 {bid_status}\n   {st_kind} ({stat_str})")
+            else:
+                lines.append(f"{idx}. ⭐{price:,} | 卖家: {seller}\n   {st_kind} ({stat_str})")
+        return "\n".join(lines)
+
     elif kind == "item":
-        header = f"{mode_icon} 【osu!gacha {mode_name} · 最新物品】"
+        title_part = f" · 物品 ({query})" if query else " · 最新物品"
+        header = f"{mode_icon} 【osu!gacha {mode_name}{title_part}】"
         if not items:
             return f"{header}\n━━━━━━━━━━━━━━━\n暂无{('拍卖中的' if is_auction else '在售')}物品。"
         lines = [
             header,
             "━━━━━━━━━━━━━━━",
-            f"{('拍卖总量' if is_auction else '在售总量')}：{total:,} 组 (展示最新 {len(items)} 组)",
+            f"{('拍卖总量' if is_auction else '在售总量')}：{total:,} 组 (展示前 {len(items)} 组)",
             "━━━━━━━━━━━━━━━",
         ]
         for idx, item in enumerate(items, 1):
@@ -389,26 +633,8 @@ def format_market_listings(
 
     # 若查询了具体卡牌且获取到了近 30 天官方成交指导价
     if query and guide:
-        sales = guide.get("sales", 0)
-        days = guide.get("days", 30)
-        median = guide.get("median")
-        highest = guide.get("highest")
-        lowest_guide = guide.get("lowest")
-        listed = guide.get("listed", total)
-
-        median_str = f"⭐{median:,.0f}" if isinstance(median, (int, float)) else f"⭐{median}"
-        highest_str = f"⭐{highest:,}" if isinstance(highest, (int, float)) else f"⭐{highest}"
-        lowest_str = f"⭐{lowest_guide:,}" if isinstance(lowest_guide, (int, float)) else f"⭐{lowest_guide}"
-
         card_type_desc = "签名卡" if is_sig else "卡牌"
-        lines.extend([
-            f"📊 【近 {days} 天{card_type_desc}成交统计】",
-            f"• 成交频次：累计成交 {sales:,} 次",
-            f"• 中位售价：{median_str}",
-            f"• 历史最高：{highest_str}",
-            f"• 当前在售：{listed:,} 张 (最低在售: {lowest_str})",
-            "━━━━━━━━━━━━━━━",
-        ])
+        lines.extend(_format_guide_block(guide, total, type_desc=card_type_desc, unit_label="张"))
 
     if not items:
         lines.append(f"暂无相关{('正在拍卖的' if is_auction else '在售')}{('签名卡' if is_sig else '卡片')}。")

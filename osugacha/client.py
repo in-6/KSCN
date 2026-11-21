@@ -319,22 +319,50 @@ class OsugachaClient:
         rarity: Optional[str] = None,
         limit: int = 8,
         mode: Optional[str] = None,
+        sort: Optional[str] = None,
+        mod_type: Optional[str] = None,
+        mod_rarity: Optional[int] = None,
+        item_id: Optional[str] = None,
+        setup_kind: Optional[str] = None,
+        ultimate: Optional[str] = None,
+        setup_grades: Optional[str] = None,
+        stone_kind: Optional[str] = None,
         api_key: Optional[str] = None,
     ) -> Tuple[bool, Optional[Dict[str, Any]], str]:
         """
-        查询市场挂单行情 (支持 card, mod, item，支持 mode='auction' 拍卖)
-        GET /api/market/listings?kind=...&q=...&rarity=...&mode=...
+        查询市场挂单行情 (支持 card, mod, item, setup, stone；支持 mode='auction' 拍卖及多维筛选)
+        GET /api/market/listings?...
         """
         headers = OsugachaClient._get_api_headers(api_key)
         url = f"{BASE_URL}/market/listings"
         params: Dict[str, Any] = {"kind": kind, "limit": limit}
         if mode:
             params["mode"] = mode
+        if sort:
+            params["sort"] = sort
         if query and kind == "card":
             import html
             params["q"] = html.unescape(query).strip()
         if rarity:
             params["rarity"] = rarity.strip().lower()
+        if kind == "mod":
+            if mod_type:
+                params["modType"] = mod_type.strip().lower()
+            if mod_rarity:
+                params["modRarity"] = str(mod_rarity)
+        elif kind == "item":
+            if item_id:
+                params["itemId"] = item_id.strip().lower()
+        elif kind == "setup":
+            if setup_kind:
+                params["setupKind"] = setup_kind.strip().lower()
+            if ultimate:
+                params["ultimate"] = ultimate.strip().lower()
+            if setup_grades:
+                params["setupGrades"] = setup_grades.strip()
+        elif kind == "stone":
+            if stone_kind:
+                params["stoneKind"] = stone_kind.strip().lower()
 
         try:
             resp = requests.get(url, params=params, headers=headers, timeout=10)
@@ -349,11 +377,13 @@ class OsugachaClient:
         card_id: Optional[str] = None,
         mod_id: Optional[str] = None,
         item_id: Optional[str] = None,
+        setup_id: Optional[str] = None,
+        stone_id: Optional[str] = None,
         api_key: Optional[str] = None,
     ) -> Tuple[bool, Optional[Dict[str, Any]], str]:
         """
         查询市场价格指导与历史成交数据 (近30天成交次数、中位数、最低最高)
-        GET /api/market/guide?cardId=... / ?modId=... / ?itemId=...
+        GET /api/market/guide?cardId=... / ?modId=... / ?itemId=... / ?setupId=... / ?stoneId=...
         """
         headers = OsugachaClient._get_api_headers(api_key)
         url = f"{BASE_URL}/market/guide"
@@ -364,14 +394,66 @@ class OsugachaClient:
             params["modId"] = mod_id
         elif item_id:
             params["itemId"] = item_id
+        elif setup_id:
+            params["setupId"] = setup_id
+        elif stone_id:
+            params["stoneId"] = stone_id
         else:
-            return False, None, "缺少查询参数 (需 cardId / modId / itemId)"
+            return False, None, "缺少查询参数 (需 cardId / modId / itemId / setupId / stoneId)"
 
         try:
             resp = requests.get(url, params=params, headers=headers, timeout=10)
             if resp.status_code == 200:
                 return True, resp.json(), "获取成功"
             return False, None, f"获取指导价失败 HTTP {resp.status_code}"
+        except Exception as e:
+            return False, None, f"网络异常: {str(e)}"
+
+    @staticmethod
+    def get_market_book(api_key: Optional[str] = None) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+        """
+        获取全服所有大宗物品的实时买卖盘口汇总
+        GET /api/market/book
+        """
+        headers = OsugachaClient._get_api_headers(api_key)
+        url = f"{BASE_URL}/market/book"
+        try:
+            resp = requests.get(url, headers=headers, timeout=10)
+            if resp.status_code == 200:
+                return True, resp.json(), "获取成功"
+            return False, None, f"获取物品盘口失败 HTTP {resp.status_code}"
+        except Exception as e:
+            return False, None, f"网络异常: {str(e)}"
+
+    @staticmethod
+    def get_item_book(item_id: str, api_key: Optional[str] = None) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+        """
+        获取指定物品的详细买卖单阶梯盘口
+        GET /api/market/book/{itemId}
+        """
+        headers = OsugachaClient._get_api_headers(api_key)
+        url = f"{BASE_URL}/market/book/{item_id}"
+        try:
+            resp = requests.get(url, headers=headers, timeout=10)
+            if resp.status_code == 200:
+                return True, resp.json(), "获取成功"
+            return False, None, f"获取盘口详情失败 HTTP {resp.status_code}"
+        except Exception as e:
+            return False, None, f"网络异常: {str(e)}"
+
+    @staticmethod
+    def get_item_book_days(item_id: str, api_key: Optional[str] = None) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+        """
+        获取指定物品近 30 天每日成交笔数、件数与每日中位价
+        GET /api/market/book/{itemId}/days
+        """
+        headers = OsugachaClient._get_api_headers(api_key)
+        url = f"{BASE_URL}/market/book/{item_id}/days"
+        try:
+            resp = requests.get(url, headers=headers, timeout=10)
+            if resp.status_code == 200:
+                return True, resp.json(), "获取成功"
+            return False, None, f"获取成交趋势失败 HTTP {resp.status_code}"
         except Exception as e:
             return False, None, f"网络异常: {str(e)}"
 
