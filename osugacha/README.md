@@ -1,6 +1,6 @@
 # osu!gacha 助手 (for KSCN QQBot)
 
-为 `osugacha.com` 定制的自动开包与出货提醒模块。
+为 `osugacha.net` 定制的自动开包与出货提醒模块。
 
 ## 核心特性
 - **多用户隔离**：每个 QQ 用户拥有独立的 Session Cookie、开关状态与统计数据。

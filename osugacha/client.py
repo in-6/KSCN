@@ -12,7 +12,7 @@ DEFAULT_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 )
 CLIENT_BUILD = "1793582738377"
-BASE_URL = "https://osugacha.com/api"
+BASE_URL = "https://osugacha.net/api"
 
 
 def get_api_key() -> Optional[str]:
@@ -93,8 +93,8 @@ class OsugachaClient:
         self.session.headers.update({
             "User-Agent": DEFAULT_USER_AGENT,
             "x-client-build": CLIENT_BUILD,
-            "Origin": "https://osugacha.com",
-            "Referer": "https://osugacha.com/packs",
+            "Origin": "https://osugacha.net",
+            "Referer": "https://osugacha.net/packs",
             "Cookie": self.cookie,
             "Accept": "application/json, text/plain, */*",
             "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
