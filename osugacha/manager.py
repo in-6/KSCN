@@ -2,13 +2,16 @@ import html
 from typing import Optional
 
 from .client import OsugachaClient
-from .scheduler import send_qq_msg
+from .scheduler import send_qq_msg, GachaScheduler
+from .storage import watch_storage
 from .formatter import (
     format_user_profile,
     format_market_listings,
     format_item_book_summary,
     format_item_book_detail,
     format_player_owners,
+    format_market_history,
+    format_watch_list,
 )
 
 
@@ -29,6 +32,10 @@ def handle_gacha_command(message: str, uid: int, gid: Optional[int] = None):
         handle_stats(uid_str, gid_str, arg)
     elif subcmd in ["mkt", "market", "市场", "行情", "市价"]:
         handle_market(uid_str, gid_str, arg)
+    elif subcmd in ["hist", "history", "成交", "历史", "记录"]:
+        handle_history(uid_str, gid_str, arg)
+    elif subcmd in ["watch", "alert", "盯盘", "监控", "提醒"]:
+        handle_watch(uid_str, gid_str, arg)
     elif subcmd in ["itemname", "itemnames", "items", "物品名", "物品表"]:
         show_item_names(uid_str, gid_str)
     elif subcmd in ["owners", "owner", "持有", "榜单", "find"]:
@@ -58,6 +65,8 @@ def show_help(uid: str, gid: Optional[str]):
         ">gacha mkt -i [物品名] [--auc] : 查询物品挂单信息 (如 -i fuel / replay3)\n"
         ">gacha mkt -d [形态] [1-5级] [--auc] : 查询外设行情 (如 -d 4 / -d tablet 5)\n"
         ">gacha mkt -st [sharp|gem] [--auc] : 查询强化石行情 (锐石/模组石)\n"
+        ">gacha hist [-c|-m|-i|-d|-st] [条件] [--sig] : 查询真实成交记录 (如 hist Monstrata --sig)\n"
+        ">gacha watch [条件] <目标价> : 集市低价盯盘提醒 (watch list / watch del <编号>)\n"
         ">gacha itemname : 显示物品名称表，供查询市场时使用\n"
         ">gacha owners [选手名] : 查看该选手卡片的最多持有者榜单\n"
         ">gacha help : 查看本帮助说明\n"
@@ -170,112 +179,84 @@ STONE_KIND_ALIASES = {
 }
 
 
-def handle_market(uid: str, gid: Optional[str], arg: Optional[str] = None):
-    """
-    处理 >gacha mkt 市场行情查询
-    - >gacha mkt [-c] [卡片名] [--sig] [--auc]
-    - >gacha mkt -m [Mod类型] [1-5星] [--auc]
-    - >gacha mkt -i [物品名] [--auc]
-    - >gacha mkt -d [形态/大招] [1-5级] [--auc]
-    - >gacha mkt -st [sharp|gem] [--auc]
-    """
+def _split_market_tokens(tokens: list):
+    """拆分品类标志与通用后缀 (--sig, --auc, --hist)"""
     kind = "card"
     is_sig = False
     is_auction = False
-    tokens = arg.strip().split() if arg else []
+    is_hist = False
 
-    filtered_tokens = []
+    filtered = []
     for tok in tokens:
         low = tok.lower()
         if low in ["--sig", "-sig", "--signature", "-signature"]:
             is_sig = True
         elif low in ["--auc", "-auc", "--auction", "-auction", "-拍卖", "拍卖"]:
             is_auction = True
+        elif low in ["--hist", "-hist", "--history", "-history"]:
+            is_hist = True
         else:
-            filtered_tokens.append(tok)
+            filtered.append(tok)
 
     sub_tokens = []
-    if filtered_tokens:
-        first = filtered_tokens[0].lower()
+    if filtered:
+        first = filtered[0].lower()
         if first in ["-m", "/m", "-mod", "mod"]:
             kind = "mod"
-            sub_tokens = filtered_tokens[1:]
+            sub_tokens = filtered[1:]
         elif first in ["-i", "/i", "-item", "item", "-物品", "物品"]:
             kind = "item"
-            sub_tokens = filtered_tokens[1:]
+            sub_tokens = filtered[1:]
         elif first in ["-d", "/d", "-device", "device", "-s", "/s", "-setup", "setup", "-外设", "外设"]:
             kind = "setup"
-            sub_tokens = filtered_tokens[1:]
+            sub_tokens = filtered[1:]
         elif first in ["-st", "/st", "-stone", "stone", "-石", "-强化石", "强化石"]:
             kind = "stone"
-            sub_tokens = filtered_tokens[1:]
+            sub_tokens = filtered[1:]
         elif first in ["-c", "/c", "-card", "card", "-卡片", "卡片"]:
             kind = "card"
-            sub_tokens = filtered_tokens[1:]
+            sub_tokens = filtered[1:]
         else:
             kind = "card"
-            sub_tokens = filtered_tokens
+            sub_tokens = filtered
 
+    return kind, sub_tokens, is_sig, is_auction, is_hist
+
+
+def _parse_filter_params(kind: str, sub_tokens: list, is_sig: bool):
+    """
+    统一解析各品类的查询条件。
+    返回: (ok: bool, params: dict, label: Optional[str], err_msg: Optional[str])
+    """
     query = " ".join(sub_tokens).strip() if sub_tokens else None
 
-    # --sig 必须配合指定卡牌名称查询
     if is_sig and (kind != "card" or not query):
-        send_qq_msg(
-            uid,
-            "❌ 请输入要查询签名卡的选手名称！\n示例：`>gacha mkt Camo --sig`",
-            gid=gid,
-        )
-        return
+        return False, {}, None, "❌ 请输入要查询签名卡的选手名称！\n示例：`>gacha mkt Camo --sig`"
 
-    mode = "auction" if is_auction else None
+    if kind == "card":
+        params = {
+            "query": query,
+            "rarity": "signature" if is_sig else None,
+        }
+        label = f"{query} (✍️签名卡)" if (query and is_sig) else query
+        return True, params, label, None
 
-    # 1. 物品 (Item) —— 非拍卖模式下使用官方交易所实时盘口 API
     if kind == "item":
-        if not is_auction:
-            if not query:
-                ok, book_data, msg = OsugachaClient.get_market_book()
-                if not ok or not book_data:
-                    send_qq_msg(uid, f"❌ 获取物品实时盘口失败：{msg}", gid=gid)
-                    return
-                send_qq_msg(uid, format_item_book_summary(book_data), gid=gid)
-                return
+        if not query:
+            return True, {"item_id": None}, None, None
+        key_clean = query.lower().replace(" ", "")
+        resolved_id = ITEM_ALIASES.get(key_clean) or ITEM_ALIASES.get(query.lower())
+        if not resolved_id:
+            return (
+                False,
+                {},
+                None,
+                f"❌ 未识别的物品名 [{query}]。\n"
+                "💡 支持：`fuel`(燃料)、`replay1`~`3`(回放)、`trophy1`~`4`(奖杯)、"
+                "`dps1`~`4`/`tank1`~`4`/`support1`~`4`/`cc1`~`4`(徽章)、`key`(钥匙)、`fragment`(碎片)。",
+            )
+        return True, {"item_id": resolved_id}, resolved_id, None
 
-            key_clean = query.lower().replace(" ", "")
-            resolved_id = ITEM_ALIASES.get(key_clean) or ITEM_ALIASES.get(query.lower())
-            if not resolved_id:
-                send_qq_msg(
-                    uid,
-                    f"❌ 未识别的物品名 [{query}]。\n"
-                    "💡 支持：`fuel`(燃料)、`replay1`~`3`(回放)、`trophy1`~`4`(奖杯)、"
-                    "`dps1`~`4`/`tank1`~`4`/`support1`~`4`/`cc1`~`4`(徽章)、`key`(钥匙)、`fragment`(碎片)。",
-                    gid=gid,
-                )
-                return
-
-            ok_b, book_detail, msg_b = OsugachaClient.get_item_book(resolved_id)
-            if not ok_b or not book_detail:
-                send_qq_msg(uid, f"❌ 获取物品盘口详情失败：{msg_b}", gid=gid)
-                return
-            ok_d, days_data, _ = OsugachaClient.get_item_book_days(resolved_id)
-            reply = format_item_book_detail(resolved_id, book_detail, days_data if ok_d else None)
-            send_qq_msg(uid, reply, gid=gid)
-            return
-        else:
-            resolved_id = None
-            if query:
-                key_clean = query.lower().replace(" ", "")
-                resolved_id = ITEM_ALIASES.get(key_clean) or ITEM_ALIASES.get(query.lower())
-                if not resolved_id:
-                    send_qq_msg(uid, f"❌ 未识别的物品名 [{query}]，无法筛选拍卖。", gid=gid)
-                    return
-            ok, data, msg = OsugachaClient.search_market(kind="item", item_id=resolved_id, mode="auction", limit=8)
-            if not ok or not data:
-                send_qq_msg(uid, f"❌ 查询物品拍卖失败：{msg}", gid=gid)
-                return
-            send_qq_msg(uid, format_market_listings(data, kind="item", query=resolved_id, is_auction=True), gid=gid)
-            return
-
-    # 2. Mod —— 支持 Mod 类型 (hr/dt/...) 与星级 (1-5)，不做词条筛选
     if kind == "mod":
         mod_type = None
         mod_rarity = None
@@ -289,14 +270,116 @@ def handle_market(uid: str, gid: Optional[str], arg: Optional[str] = None):
                 mod_rarity = int(low)
                 label_parts.append(f"{mod_rarity}星")
             else:
-                send_qq_msg(
-                    uid,
+                return (
+                    False,
+                    {},
+                    None,
                     f"❌ 无法识别的 Mod 参数 [{tok}]。\n"
                     "💡 示例：`>gacha mkt -m hr 5` 或 `>gacha mkt -m dt` (支持 hr/dt/hd/ht/ez/so/fl/nc/sd/pf + 1~5星)",
-                    gid=gid,
                 )
+        label = " ".join(label_parts) if label_parts else None
+        return True, {"mod_type": mod_type, "mod_rarity": mod_rarity}, label, None
+
+    if kind == "setup":
+        setup_kind = None
+        setup_grades = None
+        label_parts = []
+        for tok in sub_tokens:
+            low = tok.lower()
+            if low in DEVICE_TIER_MAP:
+                setup_grades, tier_label = DEVICE_TIER_MAP[low]
+                label_parts.append(tier_label)
+            elif low in DEVICE_KIND_ALIASES:
+                setup_kind = DEVICE_KIND_ALIASES[low]
+                label_parts.append(setup_kind)
+            else:
+                return (
+                    False,
+                    {},
+                    None,
+                    f"❌ 无法识别的外设参数 [{tok}]。\n"
+                    "💡 示例：`>gacha mkt -d 4` / `>gacha mkt -d 5` / `>gacha mkt -d tablet 4`\n"
+                    "支持品阶 `1`~`5`，形态 `tablet/mouse/keyboard/touchscreen/editor`。",
+                )
+        label = " ".join(label_parts) if label_parts else None
+        return True, {"setup_kind": setup_kind, "setup_grades": setup_grades}, label, None
+
+    if kind == "stone":
+        if not sub_tokens:
+            return True, {"stone_kind": None}, None, None
+        low = sub_tokens[0].lower()
+        stone_kind = STONE_KIND_ALIASES.get(low)
+        if not stone_kind:
+            return (
+                False,
+                {},
+                None,
+                f"❌ 无法识别的强化石类型 [{sub_tokens[0]}]。\n"
+                "💡 示例：`>gacha mkt -st sharp` (锐石) 或 `>gacha mkt -st gem` (宝石)",
+            )
+        label = "Sharp 锐石" if stone_kind == "sharp" else "Gem 宝石"
+        return True, {"stone_kind": stone_kind}, label, None
+
+    return False, {}, None, "❌ 未知查询品类。"
+
+
+def handle_market(uid: str, gid: Optional[str], arg: Optional[str] = None):
+    """
+    处理 >gacha mkt 市场行情查询
+    - >gacha mkt [-c] [卡片名] [--sig] [--auc] [--hist]
+    - >gacha mkt -m [Mod类型] [1-5星] [--auc]
+    - >gacha mkt -i [物品名] [--auc]
+    - >gacha mkt -d [形态] [1-5级] [--auc]
+    - >gacha mkt -st [sharp|gem] [--auc]
+    """
+    tokens = arg.strip().split() if arg else []
+    kind, sub_tokens, is_sig, is_auction, is_hist = _split_market_tokens(tokens)
+
+    if is_hist:
+        cleaned = " ".join(t for t in tokens if t.lower() not in ["--hist", "-hist", "--history", "-history"])
+        handle_history(uid, gid, cleaned or None)
+        return
+
+    ok_p, params, label, err_msg = _parse_filter_params(kind, sub_tokens, is_sig)
+    if not ok_p:
+        send_qq_msg(uid, err_msg or "❌ 参数错误。", gid=gid)
+        return
+
+    query = params.get("query") if kind == "card" else None
+    mode = "auction" if is_auction else None
+
+    # 1. 物品 (Item) —— 非拍卖模式下使用官方交易所实时盘口 API
+    if kind == "item":
+        resolved_id = params.get("item_id")
+        if not is_auction:
+            if not resolved_id:
+                ok, book_data, msg = OsugachaClient.get_market_book()
+                if not ok or not book_data:
+                    send_qq_msg(uid, f"❌ 获取物品实时盘口失败：{msg}", gid=gid)
+                    return
+                send_qq_msg(uid, format_item_book_summary(book_data), gid=gid)
                 return
 
+            ok_b, book_detail, msg_b = OsugachaClient.get_item_book(resolved_id)
+            if not ok_b or not book_detail:
+                send_qq_msg(uid, f"❌ 获取物品盘口详情失败：{msg_b}", gid=gid)
+                return
+            ok_d, days_data, _ = OsugachaClient.get_item_book_days(resolved_id)
+            reply = format_item_book_detail(resolved_id, book_detail, days_data if ok_d else None)
+            send_qq_msg(uid, reply, gid=gid)
+            return
+        else:
+            ok, data, msg = OsugachaClient.search_market(kind="item", item_id=resolved_id, mode="auction", limit=8)
+            if not ok or not data:
+                send_qq_msg(uid, f"❌ 查询物品拍卖失败：{msg}", gid=gid)
+                return
+            send_qq_msg(uid, format_market_listings(data, kind="item", query=resolved_id, is_auction=True), gid=gid)
+            return
+
+    # 2. Mod
+    if kind == "mod":
+        mod_type = params.get("mod_type")
+        mod_rarity = params.get("mod_rarity")
         has_filter = bool(mod_type or mod_rarity)
         sort_by = ("ending" if is_auction else "price_asc") if has_filter else None
         ok, data, msg = OsugachaClient.search_market(
@@ -315,7 +398,6 @@ def handle_market(uid: str, gid: Optional[str], arg: Optional[str] = None):
                 if ok_g and g_data:
                     guide_data = g_data
 
-        label = " ".join(label_parts) if label_parts else None
         send_qq_msg(
             uid,
             format_market_listings(data, kind="mod", query=label, guide=guide_data, is_auction=is_auction),
@@ -323,29 +405,10 @@ def handle_market(uid: str, gid: Optional[str], arg: Optional[str] = None):
         )
         return
 
-    # 3. 外设 Device (setup) —— 只按形态与品阶 1-5 筛选
+    # 3. 外设 Device (setup)
     if kind == "setup":
-        setup_kind = None
-        setup_grades = None
-        label_parts = []
-        for tok in sub_tokens:
-            low = tok.lower()
-            if low in DEVICE_TIER_MAP:
-                setup_grades, tier_label = DEVICE_TIER_MAP[low]
-                label_parts.append(tier_label)
-            elif low in DEVICE_KIND_ALIASES:
-                setup_kind = DEVICE_KIND_ALIASES[low]
-                label_parts.append(setup_kind)
-            else:
-                send_qq_msg(
-                    uid,
-                    f"❌ 无法识别的外设参数 [{tok}]。\n"
-                    "💡 示例：`>gacha mkt -d 4` / `>gacha mkt -d 5` / `>gacha mkt -d tablet 4`\n"
-                    "支持品阶 `1`~`5`，形态 `tablet/mouse/keyboard/touchscreen/editor`。",
-                    gid=gid,
-                )
-                return
-
+        setup_kind = params.get("setup_kind")
+        setup_grades = params.get("setup_grades")
         has_filter = bool(setup_kind or setup_grades)
         sort_by = ("ending" if is_auction else "price_asc") if has_filter else None
         ok, data, msg = OsugachaClient.search_market(
@@ -369,7 +432,6 @@ def handle_market(uid: str, gid: Optional[str], arg: Optional[str] = None):
                 if ok_g and g_data:
                     guide_data = g_data
 
-        label = " ".join(label_parts) if label_parts else None
         send_qq_msg(
             uid,
             format_market_listings(data, kind="setup", query=label, guide=guide_data, is_auction=is_auction),
@@ -377,23 +439,9 @@ def handle_market(uid: str, gid: Optional[str], arg: Optional[str] = None):
         )
         return
 
-    # 4. 强化石 Stone —— sharp / gem
+    # 4. 强化石 Stone
     if kind == "stone":
-        stone_kind = None
-        label = None
-        if sub_tokens:
-            low = sub_tokens[0].lower()
-            stone_kind = STONE_KIND_ALIASES.get(low)
-            if not stone_kind:
-                send_qq_msg(
-                    uid,
-                    f"❌ 无法识别的强化石类型 [{sub_tokens[0]}]。\n"
-                    "💡 示例：`>gacha mkt -st sharp` (锐石) 或 `>gacha mkt -st gem` (宝石)",
-                    gid=gid,
-                )
-                return
-            label = "Sharp 锐石" if stone_kind == "sharp" else "Gem 宝石"
-
+        stone_kind = params.get("stone_kind")
         sort_by = ("ending" if is_auction else "price_asc") if stone_kind else None
         ok, data, msg = OsugachaClient.search_market(
             kind="stone", stone_kind=stone_kind, mode=mode, sort=sort_by, limit=8
@@ -449,6 +497,196 @@ def handle_market(uid: str, gid: Optional[str], arg: Optional[str] = None):
 
         reply = format_market_listings(data, kind="card", is_sig=is_sig, is_auction=is_auction)
         send_qq_msg(uid, reply, gid=gid)
+
+
+def handle_history(uid: str, gid: Optional[str], arg: Optional[str] = None):
+    """
+    处理 >gacha hist 真实历史成交查询
+    """
+    tokens = arg.strip().split() if arg else []
+    kind, sub_tokens, is_sig, is_auction, _ = _split_market_tokens(tokens)
+
+    ok_p, params, label, err_msg = _parse_filter_params(kind, sub_tokens, is_sig)
+    if not ok_p:
+        send_qq_msg(uid, err_msg or "❌ 参数错误。", gid=gid)
+        return
+
+    mode = "auction" if is_auction else None
+    needs_client_filter = bool(
+        (kind == "card" and is_sig)
+        or (kind == "mod" and params.get("mod_rarity"))
+        or (kind == "setup" and (params.get("setup_kind") or params.get("setup_grades")))
+    )
+    fetch_limit = 50 if needs_client_filter else 10
+
+    ok, data, msg = OsugachaClient.get_market_history(
+        kind=kind,
+        player=params.get("query") if kind == "card" else None,
+        mod_type=params.get("mod_type") if kind == "mod" else None,
+        item_id=params.get("item_id") if kind == "item" else None,
+        stone_kind=params.get("stone_kind") if kind == "stone" else None,
+        mode=mode,
+        limit=fetch_limit,
+    )
+    if not ok or not data:
+        send_qq_msg(uid, f"❌ 查询历史成交失败：{msg}", gid=gid)
+        return
+
+    items = data.get("items", [])
+
+    # 服务端 history 接口未暴露的条件在本地精准过滤
+    if kind == "card" and is_sig:
+        items = [it for it in items if (it.get("card") or {}).get("sig")]
+    elif kind == "mod" and params.get("mod_rarity"):
+        target_r = int(params["mod_rarity"])
+        items = [it for it in items if (it.get("mod") or {}).get("rarity") == target_r]
+    elif kind == "setup":
+        target_sk = params.get("setup_kind")
+        target_grades = params.get("setup_grades")
+        allowed_pairs = set(target_grades.split(",")) if target_grades else None
+        filtered_setups = []
+        for it in items:
+            s = it.get("setup") or {}
+            if target_sk and s.get("kind") != target_sk:
+                continue
+            if allowed_pairs is not None:
+                attrs = s.get("attrs") or []
+                g = sorted([int(a.get("grade", 0)) for a in attrs], reverse=True)
+                if len(g) != 2 or f"{g[0]}{g[1]}" not in allowed_pairs:
+                    continue
+            filtered_setups.append(it)
+        items = filtered_setups
+
+    display_query = params.get("query") if kind == "card" else label
+    reply = format_market_history(items[:8], kind=kind, query=display_query, is_sig=is_sig)
+    send_qq_msg(uid, reply, gid=gid)
+
+
+def _parse_price(tok: str) -> Optional[int]:
+    """解析目标价 (支持纯数字, 3.8w/3.8万, 38k)"""
+    if not tok:
+        return None
+    s = tok.strip().lower().replace(",", "").replace("⭐", "")
+    mult = 1.0
+    if s.endswith(("w", "万")):
+        mult = 10000.0
+        s = s[:-1]
+    elif s.endswith("k"):
+        mult = 1000.0
+        s = s[:-1]
+    try:
+        val = float(s) * mult
+        if val <= 0:
+            return None
+        return int(round(val))
+    except Exception:
+        return None
+
+
+def handle_watch(uid: str, gid: Optional[str], arg: Optional[str] = None):
+    """
+    处理 >gacha watch 低价盯盘提醒管理与新增
+    """
+    tokens = arg.strip().split() if arg else []
+    if not tokens or tokens[0].lower() in ["list", "ls", "列表", "查看"]:
+        watches = watch_storage.list_watches(uid)
+        send_qq_msg(uid, format_watch_list(watches), gid=gid)
+        return
+
+    head = tokens[0].lower()
+    if head in ["clear", "清空"]:
+        removed = watch_storage.clear_watches(uid)
+        send_qq_msg(uid, f"🗑️ 已清空你的 {removed} 条盯盘规则。", gid=gid)
+        return
+
+    if head in ["del", "rm", "remove", "delete", "删除", "取消"]:
+        if len(tokens) < 2:
+            send_qq_msg(uid, "❌ 请提供要删除的规则编号！示例：`>gacha watch del 1`", gid=gid)
+            return
+        target = tokens[1].lower()
+        if target in ["all", "全部"]:
+            removed = watch_storage.clear_watches(uid)
+            send_qq_msg(uid, f"🗑️ 已清空你的 {removed} 条盯盘规则。", gid=gid)
+            return
+        try:
+            wid = int(target.lstrip("#"))
+        except ValueError:
+            send_qq_msg(uid, "❌ 规则编号必须是数字，示例：`>gacha watch del 1`", gid=gid)
+            return
+        if watch_storage.delete_watch(uid, wid):
+            send_qq_msg(uid, f"✅ 已删除盯盘规则 #{wid}。", gid=gid)
+        else:
+            send_qq_msg(uid, f"❌ 未找到属于你的规则 #{wid}（可用 `>gacha watch list` 查看）。", gid=gid)
+        return
+
+    # 新增盯盘：最后一个参数必须是目标最高价格
+    if len(tokens) < 2:
+        send_qq_msg(
+            uid,
+            "❌ 格式错误，请同时指定【目标条件】和【最高触发价格】！\n"
+            "💡 示例：\n"
+            "• `>gacha watch Monstrata --sig 38000` (或 `3.8w`)\n"
+            "• `>gacha watch -i trophy1 3500`\n"
+            "• `>gacha watch -d 4 9000`\n"
+            "• `>gacha watch -m hr 5 2500`",
+            gid=gid,
+        )
+        return
+
+    max_price = _parse_price(tokens[-1])
+    if max_price is None:
+        send_qq_msg(
+            uid,
+            f"❌ 无法识别价格 `{tokens[-1]}`（支持如 `38000`、`3.8w`、`35k`）。\n"
+            "💡 示例：`>gacha watch Monstrata --sig 3.8w`",
+            gid=gid,
+        )
+        return
+
+    cond_tokens = tokens[:-1]
+    kind, sub_tokens, is_sig, _, _ = _split_market_tokens(cond_tokens)
+    ok_p, params, label, err_msg = _parse_filter_params(kind, sub_tokens, is_sig)
+    if not ok_p:
+        send_qq_msg(uid, err_msg or "❌ 监控条件无效。", gid=gid)
+        return
+
+    # 必须至少带有一个具体筛选条件，防止全服空条件误匹配
+    has_concrete = any(v is not None and v != "" for v in params.values())
+    if not has_concrete:
+        send_qq_msg(
+            uid,
+            "❌ 请至少指定一个具体的监控目标（选手名、物品名、Mod 类型/星级、外设形态/等级或强化石类型）。\n"
+            "💡 示例：`>gacha watch -i trophy1 3500`",
+            gid=gid,
+        )
+        return
+
+    kind_prefix = {"card": "卡片", "item": "物品", "mod": "Mod", "setup": "外设", "stone": "强化石"}.get(kind, kind)
+    full_label = f"[{kind_prefix}] {label}" if label else kind_prefix
+
+    ok_add, entry, msg_add = watch_storage.add_watch(
+        uid=uid,
+        gid=gid,
+        kind=kind,
+        params=params,
+        label=full_label,
+        max_price=max_price,
+    )
+    if not ok_add or not entry:
+        send_qq_msg(uid, f"❌ 添加盯盘失败：{msg_add}", gid=gid)
+        return
+
+    poll_secs = GachaScheduler.POLL_INTERVAL_SECONDS
+    interval_text = f"{poll_secs // 60} 分钟" if poll_secs % 60 == 0 else f"{poll_secs} 秒"
+
+    send_qq_msg(
+        uid,
+        f"✅ 已创建低价盯盘规则 #{entry['id']}\n"
+        f"• 监控目标：{entry['label']}\n"
+        f"• 触发条件：价格 ≤ ⭐{max_price:,}\n"
+        f"⏱️ 后台每 {interval_text}自动巡检一次，命中低价将第一时间在当前窗口 @ 你提醒！（发 `>gacha watch list` 查看列表）",
+        gid=gid,
+    )
 
 
 def handle_owners(uid: str, gid: Optional[str], target_player: Optional[str] = None):

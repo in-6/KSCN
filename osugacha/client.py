@@ -476,5 +476,46 @@ class OsugachaClient:
         except Exception as e:
             return False, None, f"网络异常: {str(e)}"
 
+    @staticmethod
+    def get_market_history(
+        kind: str = "card",
+        player: Optional[str] = None,
+        mod_type: Optional[str] = None,
+        item_id: Optional[str] = None,
+        stone_kind: Optional[str] = None,
+        ultimate: Optional[str] = None,
+        mode: Optional[str] = None,
+        limit: int = 20,
+        api_key: Optional[str] = None,
+    ) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+        """
+        查询市场真实历史成交记录
+        GET /api/market/history?kind=...&...
+        """
+        import html
+        headers = OsugachaClient._get_api_headers(api_key)
+        url = f"{BASE_URL}/market/history"
+        params: Dict[str, Any] = {"kind": kind, "limit": limit}
+        if mode:
+            params["mode"] = mode
+        if kind == "card" and player:
+            params["player"] = html.unescape(player).strip()
+        elif kind == "mod" and mod_type:
+            params["modType"] = mod_type.strip().lower()
+        elif kind == "item" and item_id:
+            params["itemId"] = item_id.strip().lower()
+        elif kind == "stone" and stone_kind:
+            params["stoneKind"] = stone_kind.strip().lower()
+        elif kind == "setup" and ultimate:
+            params["ultimate"] = ultimate.strip().lower()
+
+        try:
+            resp = requests.get(url, params=params, headers=headers, timeout=10)
+            if resp.status_code == 200:
+                return True, resp.json(), "获取成功"
+            return False, None, f"获取成交记录失败 HTTP {resp.status_code}"
+        except Exception as e:
+            return False, None, f"网络异常: {str(e)}"
+
 
 

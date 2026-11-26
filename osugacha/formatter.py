@@ -710,3 +710,218 @@ def format_player_owners(owners: List[Dict[str, Any]], player_name: str) -> str:
     return "\n".join(lines)
 
 
+def format_sold_time(sold_at_str: Optional[str]) -> str:
+    """将 ISO UTC 成交时间格式化为本地时间 (UTC+8 MM-DD HH:MM)"""
+    if not sold_at_str:
+        return ""
+    try:
+        from datetime import datetime, timezone, timedelta
+        dt = datetime.fromisoformat(sold_at_str.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        local_dt = dt.astimezone(timezone(timedelta(hours=8)))
+        return local_dt.strftime("%m-%d %H:%M")
+    except Exception:
+        return str(sold_at_str)[:16]
+
+
+def _format_card_brief(card: Dict[str, Any]) -> str:
+    """统一格式化卡片简要描述（兼容 listings 字典与 history 字符串字段）"""
+    player = card.get("player")
+    if isinstance(player, dict):
+        pname = player.get("username") or "未知选手"
+    elif isinstance(player, str) and player:
+        pname = player
+    else:
+        pname = card.get("username") or card.get("playerName") or "未知选手"
+
+    rarity = str(card.get("rarity", "common")).lower()
+    r_cfg = RARITY_CONFIG.get(rarity, {"name": rarity.capitalize(), "icon": "▫️"})
+    serial = card.get("serialNo")
+    sn_str = f" #{serial}" if serial else ""
+
+    sig = card.get("sig")
+    sig_str = ""
+    if isinstance(sig, dict):
+        tier = sig.get("tier", "").upper()
+        sig_str = f" ✍️[{tier}]" if tier else " ✍️[签名]"
+    elif isinstance(sig, str) and sig:
+        sig_str = " ✍️[签名]"
+
+    lvl = card.get("level") or 1
+    eid = card.get("eidolon") or 0
+    extra = []
+    if lvl > 1:
+        extra.append(f"Lv.{lvl}")
+    if eid > 0:
+        extra.append(f"E{eid}")
+    extra_str = f" ({' '.join(extra)})" if extra else ""
+
+    return f"{r_cfg['icon']} {pname}{sig_str} [{r_cfg['name']}]{sn_str}{extra_str}"
+
+
+def _format_setup_brief(setup: Dict[str, Any]) -> str:
+    """统一格式化外设简要描述"""
+    s_kind = SETUP_KIND_NAMES.get(setup.get("kind", ""), setup.get("kind", "外设"))
+    ult = setup.get("ultimate", "")
+    attrs = setup.get("attrs") or []
+    g_sum = setup.get("gradeSum")
+    if g_sum is None:
+        g_sum = sum(a.get("grade", 0) for a in attrs)
+    t_icon, t_name = SETUP_TIER_INFO.get(g_sum, ("▫️", f"总阶{g_sum}"))
+    attr_str = " / ".join(
+        f"{a.get('id', '')} {ROMAN_GRADES.get(a.get('grade', 1), str(a.get('grade', 1)))}"
+        for a in attrs
+    )
+    return f"{t_icon} [{t_name}] {s_kind} · {ult} ({attr_str})"
+
+
+def format_market_history(
+    items: List[Dict[str, Any]],
+    kind: str = "card",
+    query: Optional[str] = None,
+    is_sig: bool = False,
+) -> str:
+    """
+    格式化真实历史成交记录 (GET /api/market/history)
+    """
+    sig_tag = " (✍️签名卡)" if is_sig else ""
+    kind_labels = {
+        "card": f" · {query}{sig_tag}" if query else f" · 最新卡片{sig_tag}",
+        "mod": f" · Mod ({query})" if query else " · 最新 Mod",
+        "setup": f" · 外设 ({query})" if query else " · 最新外设",
+        "stone": f" · 强化石 ({query})" if query else " · 最新强化石",
+        "item": f" · {ITEM_NAMES.get(query, query)}" if query else " · 最新物品",
+    }
+    title_part = kind_labels.get(kind, "")
+    header = f"📜 【osu!gacha 真实成交记录{title_part}】"
+    lines = [header, "━━━━━━━━━━━━━━━"]
+
+    if not items:
+        lines.append("暂无匹配的近期真实成交记录。")
+        return "\n".join(lines)
+
+    shown = items[:8]
+    lines.append(f"展示最近 {len(shown)} 笔真实成交 (UTC+8)：")
+
+    for idx, it in enumerate(shown, 1):
+        price = it.get("price", 0)
+        qty = it.get("qty", 1) or 1
+        mode = it.get("mode", "bin")
+        mode_tag = "🔨拍卖" if mode == "auction" else "一口价"
+        t_str = format_sold_time(it.get("soldAt") or it.get("createdAt"))
+        time_prefix = f"[{t_str}] " if t_str else ""
+
+        if kind == "card":
+            desc = _format_card_brief(it.get("card") or {})
+            lines.append(f"{idx}. {time_prefix}⭐{price:,} ({mode_tag})\n   {desc}")
+        elif kind == "mod":
+            m = it.get("mod") or {}
+            m_type = str(m.get("type", "MOD")).upper()
+            r_num = m.get("rarity", 1)
+            icon, r_name = MOD_RARITY_ICONS.get(r_num, ("▫️", f"{r_num}星"))
+            lvl = m.get("level", 0)
+            main_stat = format_mod_main_stat(m.get("main"))
+            lines.append(f"{idx}. {time_prefix}⭐{price:,} ({mode_tag})\n   {icon} {m_type}+{lvl} [{r_name}] ({main_stat})")
+        elif kind == "setup":
+            desc = _format_setup_brief(it.get("setup") or {})
+            lines.append(f"{idx}. {time_prefix}⭐{price:,} ({mode_tag})\n   {desc}")
+        elif kind == "stone":
+            st = it.get("stone") or {}
+            st_kind = STONE_KIND_NAMES.get(st.get("kind", ""), st.get("kind", "强化石"))
+            stat_str = format_mod_main_stat({"stat": st.get("stat", ""), "value": st.get("value", 0)})
+            lines.append(f"{idx}. {time_prefix}⭐{price:,} ({mode_tag})\n   {st_kind} ({stat_str})")
+        elif kind == "item":
+            item_obj = it.get("item") or {}
+            item_name, i_qty = format_item_name(item_obj)
+            real_qty = i_qty if i_qty > 1 else qty
+            if real_qty > 1:
+                unit_p = price / real_qty
+                unit_str = f"单价 ⭐{unit_p:,.1f}" if unit_p != int(unit_p) else f"单价 ⭐{int(unit_p):,}"
+                lines.append(f"{idx}. {time_prefix}⭐{price:,} ({unit_str} · {mode_tag})\n   {item_name} ×{real_qty}")
+            else:
+                lines.append(f"{idx}. {time_prefix}⭐{price:,} ({mode_tag})\n   {item_name}")
+
+    return "\n".join(lines)
+
+
+def format_watch_list(watches: List[Dict[str, Any]]) -> str:
+    """格式化用户的低价盯盘规则列表"""
+    header = "👀 【osu!gacha 集市低价盯盘列表】"
+    lines = [header, "━━━━━━━━━━━━━━━"]
+    if not watches:
+        lines.append("当前没有活跃的盯盘规则。")
+        lines.append("💡 示例：`>gacha watch Monstrata --sig 38000`")
+        lines.append("   或：`>gacha watch -i trophy1 3500`")
+        return "\n".join(lines)
+
+    for w in watches:
+        wid = w.get("id")
+        label = w.get("label", "未知")
+        max_p = w.get("max_price", 0)
+        lines.append(f"• #{wid} | {label} | 触发阈值 ≤ ⭐{max_p:,}")
+
+    lines.append("━━━━━━━━━━━━━━━")
+    lines.append("💡 删除指定规则：`>gacha watch del <编号>`（或 `watch clear` 清空）")
+    return "\n".join(lines)
+
+
+def format_watch_alert(
+    watch: Dict[str, Any],
+    matched_items: List[Dict[str, Any]],
+    book_entry: Optional[Dict[str, Any]] = None,
+) -> str:
+    """格式化低价捡漏提醒通知"""
+    wid = watch.get("id")
+    label = watch.get("label", "")
+    max_p = watch.get("max_price", 0)
+    kind = watch.get("kind", "card")
+
+    lines = [
+        f"🔔 【低价盯盘提醒 · 规则 #{wid}】",
+        "━━━━━━━━━━━━━━━",
+        f"• 监控目标：{label}",
+        f"• 设定阈值：≤ ⭐{max_p:,}",
+        "━━━━━━━━━━━━━━━",
+    ]
+
+    if kind == "item" and book_entry is not None:
+        buy_p = book_entry.get("buy")
+        sell_p = book_entry.get("sell")
+        offered = book_entry.get("offered", 0)
+        lines.append(f"🔥 盘口最低卖价已达：⭐{buy_p:,} (在售 {offered:,} 个)")
+        if sell_p is not None:
+            lines.append(f"• 当前最高求购：⭐{sell_p:,}")
+        lines.append("💡 速去官网市场直购秒单！")
+        return "\n".join(lines)
+
+    lines.append(f"🔥 发现 {len(matched_items)} 条低于阈值的在售挂单：")
+    for idx, it in enumerate(matched_items[:3], 1):
+        price = it.get("price", 0)
+        seller_obj = it.get("seller")
+        seller = seller_obj.get("username", "神秘卖家") if isinstance(seller_obj, dict) else str(seller_obj or "神秘卖家")
+        if kind == "card":
+            desc = _format_card_brief(it.get("card") or {})
+        elif kind == "mod":
+            m = it.get("mod") or {}
+            m_type = str(m.get("type", "MOD")).upper()
+            r_num = m.get("rarity", 1)
+            icon, r_name = MOD_RARITY_ICONS.get(r_num, ("▫️", f"{r_num}星"))
+            lvl = m.get("level", 0)
+            main_stat = format_mod_main_stat(m.get("main"))
+            desc = f"{icon} {m_type}+{lvl} [{r_name}] ({main_stat})"
+        elif kind == "setup":
+            desc = _format_setup_brief(it.get("setup") or {})
+        elif kind == "stone":
+            st = it.get("stone") or {}
+            st_kind = STONE_KIND_NAMES.get(st.get("kind", ""), st.get("kind", "强化石"))
+            stat_str = format_mod_main_stat({"stat": st.get("stat", ""), "value": st.get("value", 0)})
+            desc = f"{st_kind} ({stat_str})"
+        else:
+            desc = ""
+        lines.append(f"{idx}. ⭐{price:,} | 卖家: {seller}\n   {desc}")
+
+    lines.append("💡 若已抢到或不再需要，可发 `>gacha watch del " + str(wid) + "` 关闭提醒。")
+    return "\n".join(lines)
+
+
